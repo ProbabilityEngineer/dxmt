@@ -5,10 +5,9 @@ namespace dxmt {
 
 MTLD3D11Inspection::MTLD3D11Inspection(WMT::Device pDevice)
     : m_device(pDevice) {
-  /**
-  TODO: make it configurable (fake non-TBDR)
-   */
-  m_architectureInfo.TileBasedDeferredRenderer = pDevice.hasUnifiedMemory();
+  // UMA does not imply tile-based deferred rendering. DXMT has no reliable
+  // Metal query for this D3D11 architecture property.
+  m_architectureInfo.TileBasedDeferredRenderer = FALSE;
 
   m_threading.DriverConcurrentCreates = TRUE;
   m_threading.DriverCommandLists = TRUE;
@@ -35,23 +34,26 @@ MTLD3D11Inspection::MTLD3D11Inspection(WMT::Device pDevice)
   ConstantBufferOffsetting, and MapNoOverwriteOnDynamicConstantBuffer must be
   all TRUE/FALSE. Overlapping copy needs special handling
   */
-  m_d3d11Options.CopyWithOverlap = TRUE;
-  /**
-  FIXME: I think it is supported
-   */
-  m_d3d11Options.MultisampleRTVWithForcedSampleCountOne = TRUE;
+  // Metal overlapping texture copies have undefined behavior unless they are
+  // explicitly emulated. DXMT does not currently provide that emulation.
+  m_d3d11Options.CopyWithOverlap = FALSE;
+  // ForcedSampleCount is consumed only by the UAV-only rendering path;
+  // regular multisample RTV rendering does not apply this behavior.
+  m_d3d11Options.MultisampleRTVWithForcedSampleCountOne = FALSE;
   m_d3d11Options.MapNoOverwriteOnDynamicBufferSRV = TRUE;
   /**
   https://github.com/gpuweb/gpuweb/issues/503#issuecomment-908973358
   */
   m_d3d11Options.UAVOnlyRenderingForcedSampleCount = TRUE;
-  m_d3d11Options.DiscardAPIsSeenByDriver = TRUE;
+  // DiscardResource/DiscardView are currently no-ops and do not reach Metal.
+  m_d3d11Options.DiscardAPIsSeenByDriver = FALSE;
   m_d3d11Options.ExtendedDoublesShaderInstructions = FALSE;
   /**
   FIXME: This is questionable
   */
   m_d3d11Options.ExtendedResourceSharing = TRUE;
-  m_d3d11Options.SAD4ShaderInstructions = TRUE;
+  // No DXBC SAD4 lowering path is currently implemented.
+  m_d3d11Options.SAD4ShaderInstructions = FALSE;
   m_d3d11Options.FlagsForUpdateAndCopySeenByDriver = TRUE;
 #ifdef DXMT_NO_PRIVATE_API
   m_d3d11Options.OutputMergerLogicOp = FALSE;
@@ -71,15 +73,16 @@ MTLD3D11Inspection::MTLD3D11Inspection(WMT::Device pDevice)
       D3D11_SHADER_CACHE_SUPPORT_AUTOMATIC_DISK_CACHE |
       D3D11_SHADER_CACHE_SUPPORT_AUTOMATIC_INPROC_CACHE;
 
-  m_shaderMinPrecision.PixelShaderMinPrecision =
-      D3D11_SHADER_MIN_PRECISION_16_BIT;
-  m_shaderMinPrecision.AllOtherShaderStagesMinPrecision =
-      D3D11_SHADER_MIN_PRECISION_16_BIT;
+  // DXBC minimum-precision declarations are parsed but not applied by the
+  // translator; do not advertise 16-bit minimum-precision support.
+  m_shaderMinPrecision.PixelShaderMinPrecision = 0;
+  m_shaderMinPrecision.AllOtherShaderStagesMinPrecision = 0;
 
   m_d3d9Shadow.SupportsDepthAsTextureWithLessEqualComparisonFilter = TRUE;
 
   m_d3d11Options1.ClearViewAlsoSupportsDepthOnlyFormats = TRUE;
-  m_d3d11Options1.MapOnDefaultBuffers = TRUE;
+  // Immediate-context Map only accepts dynamic or staging buffers.
+  m_d3d11Options1.MapOnDefaultBuffers = FALSE;
   /**
   TODO: supported by Apple10 family
   */
@@ -90,10 +93,16 @@ MTLD3D11Inspection::MTLD3D11Inspection(WMT::Device pDevice)
   m_d3d11Options2.ConservativeRasterizationTier =
       D3D11_CONSERVATIVE_RASTERIZATION_NOT_SUPPORTED;
   m_d3d11Options2.PSSpecifiedStencilRefSupported = TRUE;
-  m_d3d11Options2.ROVsSupported = TRUE;
-  m_d3d11Options2.MapOnDefaultTextures = TRUE;
-  m_d3d11Options2.StandardSwizzle = TRUE;
-  m_d3d11Options2.TypedUAVLoadAdditionalFormats = TRUE;
+  // Rasterizer-ordered views have neither a D3D11 interface implementation nor
+  // AIR shader conversion support. Do not expose an unsupported feature path.
+  m_d3d11Options2.ROVsSupported = FALSE;
+  // Immediate-context Map only accepts dynamic or staging textures.
+  m_d3d11Options2.MapOnDefaultTextures = FALSE;
+  // Tiled resources are unsupported and texture views use identity swizzles.
+  m_d3d11Options2.StandardSwizzle = FALSE;
+  // Typed UAV loads exist, but additional-format coverage is not implemented
+  // or validated against the D3D11 format requirements.
+  m_d3d11Options2.TypedUAVLoadAdditionalFormats = FALSE;
   /**
   It's an intention to not report UMA
    */

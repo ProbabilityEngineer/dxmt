@@ -160,13 +160,18 @@ public:
     TRACE("Start compiling 1 PSO");
 
     WMT::Reference<WMT::Error> err;
-    MTL_COMPILED_SHADER cs;
+    MTL_COMPILED_SHADER cs{};
     if (!ComputeShader->GetShader(&cs)) {
       return ComputeShader;
     }
 
     WMTComputePipelineInfo info;
     WMT::InitializeComputePipelineInfo(info);
+
+    if (!cs.Function) {
+      ERR("Failed to compile compute shader: function is null");
+      return this;
+    }
 
     info.compute_function = cs.Function;
     info.tgsize_is_multiple_of_sgwidth = tgsize_is_multiple_of_sgwidth;

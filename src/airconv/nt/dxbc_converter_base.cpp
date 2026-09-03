@@ -27,12 +27,23 @@
 #include "llvm/Support/AtomicOrdering.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/raw_ostream.h"
 
 namespace dxmt::dxbc {
 
 llvm::ArrayType *
 GetArrayType(llvm::Value *Array) {
-  return llvm::cast<llvm::ArrayType>(llvm::cast<llvm::PointerType>(Array->getType())->getNonOpaquePointerElementType());
+  auto *Pointer = llvm::dyn_cast<llvm::PointerType>(Array->getType());
+  auto *Ty = Pointer && !Pointer->isOpaque()
+      ? llvm::dyn_cast<llvm::ArrayType>(Pointer->getNonOpaquePointerElementType())
+      : nullptr;
+  if (!Ty) {
+    llvm::errs() << "DXMT NT array diagnostic: value type=";
+    Array->getType()->print(llvm::errs());
+    llvm::errs() << "\n";
+    llvm::report_fatal_error("DXMT expected NT array type");
+  }
+  return Ty;
 }
 
 llvm::Value *
@@ -419,7 +430,7 @@ Converter::ApplySrcModifier(SrcOperandCommon C, llvm::Value *Value, mask_t Mask)
   return Value;
 }
 
-llvm::Optional<TextureResourceHandle>
+std::optional<TextureResourceHandle>
 Converter::LoadTexture(const SrcOperandResource &SrcOp) {
   using namespace llvm::air;
 
@@ -432,13 +443,13 @@ Converter::LoadTexture(const SrcOperandResource &SrcOp) {
   texture.memory_access = descriptor->MemoryAccess;
   texture.sample_type = descriptor->SampleType;
 
-  return llvm::Optional<TextureResourceHandle>(
+  return std::optional<TextureResourceHandle>(
       {texture, descriptor->ResourceKindLogical, descriptor->ResourceHandle, descriptor->Metadata, SrcOp.read_swizzle,
        descriptor->GlobalCoherent && SupportsMemoryCoherency()}
   );
 }
 
-llvm::Optional<TextureResourceHandle>
+std::optional<TextureResourceHandle>
 Converter::LoadTexture(const SrcOperandUAV &SrcOp) {
   using namespace llvm::air;
 
@@ -451,13 +462,13 @@ Converter::LoadTexture(const SrcOperandUAV &SrcOp) {
   texture.memory_access = descriptor->MemoryAccess;
   texture.sample_type = descriptor->SampleType;
 
-  return llvm::Optional<TextureResourceHandle>(
+  return std::optional<TextureResourceHandle>(
       {texture, descriptor->ResourceKindLogical, descriptor->ResourceHandle, descriptor->Metadata, SrcOp.read_swizzle,
        descriptor->GlobalCoherent && SupportsMemoryCoherency()}
   );
 }
 
-llvm::Optional<TextureResourceHandle>
+std::optional<TextureResourceHandle>
 Converter::LoadTexture(const AtomicDstOperandUAV &DstOp) {
   using namespace llvm::air;
 
@@ -470,13 +481,13 @@ Converter::LoadTexture(const AtomicDstOperandUAV &DstOp) {
   texture.memory_access = descriptor->MemoryAccess;
   texture.sample_type = descriptor->SampleType;
 
-  return llvm::Optional<TextureResourceHandle>(
+  return std::optional<TextureResourceHandle>(
       {texture, descriptor->ResourceKindLogical, descriptor->ResourceHandle, descriptor->Metadata, swizzle_identity,
        descriptor->GlobalCoherent && SupportsMemoryCoherency()}
   );
 }
 
-llvm::Optional<BufferResourceHandle>
+std::optional<BufferResourceHandle>
 Converter::LoadBuffer(const SrcOperandResource &SrcOp) {
   using namespace llvm::air;
 
@@ -485,13 +496,13 @@ Converter::LoadBuffer(const SrcOperandResource &SrcOp) {
   if (!descriptor)
     return {};
 
-  return llvm::Optional<BufferResourceHandle>(
+  return std::optional<BufferResourceHandle>(
       {descriptor->Pointer, descriptor->Metadata, descriptor->StructureStride, SrcOp.read_swizzle,
        descriptor->GlobalCoherent && SupportsMemoryCoherency()}
   );
 }
 
-llvm::Optional<BufferResourceHandle>
+std::optional<BufferResourceHandle>
 Converter::LoadBuffer(const SrcOperandUAV &SrcOp) {
   using namespace llvm::air;
 
@@ -499,13 +510,13 @@ Converter::LoadBuffer(const SrcOperandUAV &SrcOp) {
   if (!descriptor)
     return {};
 
-  return llvm::Optional<BufferResourceHandle>(
+  return std::optional<BufferResourceHandle>(
       {descriptor->Pointer, descriptor->Metadata, descriptor->StructureStride, SrcOp.read_swizzle,
        descriptor->GlobalCoherent && SupportsMemoryCoherency()}
   );
 }
 
-llvm::Optional<AtomicBufferResourceHandle>
+std::optional<AtomicBufferResourceHandle>
 Converter::LoadBuffer(const AtomicDstOperandUAV &DstOp) {
   using namespace llvm::air;
 
@@ -513,13 +524,13 @@ Converter::LoadBuffer(const AtomicDstOperandUAV &DstOp) {
   if (!descriptor)
     return {};
 
-  return llvm::Optional<AtomicBufferResourceHandle>(
+  return std::optional<AtomicBufferResourceHandle>(
       {descriptor->Pointer, descriptor->Metadata, descriptor->StructureStride, DstOp.mask,
        descriptor->GlobalCoherent && SupportsMemoryCoherency()}
   );
 }
 
-llvm::Optional<BufferResourceHandle>
+std::optional<BufferResourceHandle>
 Converter::LoadBuffer(const SrcOperandTGSM &SrcOp) {
   auto [stride, tgsm_h] = res.tgsm_map[SrcOp.id];
 
@@ -527,9 +538,9 @@ Converter::LoadBuffer(const SrcOperandTGSM &SrcOp) {
 
   IntPtr = ir.CreatePointerCast(IntPtr, ir.getInt32Ty()->getPointerTo(tgsm_h->getAddressSpace()));
 
-  return llvm::Optional<BufferResourceHandle>({IntPtr, nullptr, stride, SrcOp.read_swizzle, false});
+  return std::optional<BufferResourceHandle>({IntPtr, nullptr, stride, SrcOp.read_swizzle, false});
 }
-llvm::Optional<AtomicBufferResourceHandle>
+std::optional<AtomicBufferResourceHandle>
 Converter::LoadBuffer(const AtomicOperandTGSM &DstOp) {
   auto [stride, tgsm_h] = res.tgsm_map[DstOp.id];
 
@@ -537,10 +548,10 @@ Converter::LoadBuffer(const AtomicOperandTGSM &DstOp) {
 
   IntPtr = ir.CreatePointerCast(IntPtr, ir.getInt32Ty()->getPointerTo(tgsm_h->getAddressSpace()));
 
-  return llvm::Optional<AtomicBufferResourceHandle>({IntPtr, nullptr, stride, DstOp.mask, false});
+  return std::optional<AtomicBufferResourceHandle>({IntPtr, nullptr, stride, DstOp.mask, false});
 }
 
-llvm::Optional<UAVCounterHandle>
+std::optional<UAVCounterHandle>
 Converter::LoadCounter(const AtomicDstOperandUAV &SrcOp) {
   using namespace llvm::air;
 
@@ -548,10 +559,10 @@ Converter::LoadCounter(const AtomicDstOperandUAV &SrcOp) {
   if (!descriptor)
     return {};
 
-  return llvm::Optional<UAVCounterHandle>({descriptor->Pointer});
+  return std::optional<UAVCounterHandle>({descriptor->Pointer});
 }
 
-llvm::Optional<SamplerHandle>
+std::optional<SamplerHandle>
 Converter::LoadSampler(const SrcOperandSampler &SrcOp) {
   using namespace llvm::air;
 
@@ -561,7 +572,7 @@ Converter::LoadSampler(const SrcOperandSampler &SrcOp) {
 
   auto Bias = ir.CreateBitCast(ir.CreateTrunc(descriptor->Metadata, ctx.types._int), ctx.types._float);
 
-  return llvm::Optional<SamplerHandle>({descriptor->SamplerHandle, descriptor->CubeSamplerHandle, Bias});
+  return std::optional<SamplerHandle>({descriptor->SamplerHandle, descriptor->CubeSamplerHandle, Bias});
 }
 
 void
@@ -1479,7 +1490,7 @@ Converter::operator()(const InstStoreUAVTyped &store) {
   using namespace llvm::air;
 
   auto Tex = LoadTexture(store.dst);
-  if (!Tex.hasValue())
+  if (!Tex.has_value())
     return;
   llvm::Value *Address = nullptr;
   llvm::Value *ArrayIndex = nullptr;
@@ -2162,8 +2173,8 @@ void
 Converter::operator()(const InstSampleInfo &sample) {
   using namespace llvm::air;
 
-  llvm::Optional<TextureResourceHandle> Tex =
-      sample.src ? LoadTexture(sample.src.value()) : llvm::Optional<TextureResourceHandle>{};
+  std::optional<TextureResourceHandle> Tex =
+      sample.src ? LoadTexture(sample.src.value()) : std::optional<TextureResourceHandle>{};
 
   llvm::Value *SampleCount = nullptr;
 
@@ -2191,8 +2202,8 @@ void
 Converter::operator()(const InstSamplePos &sample) {
   using namespace llvm::air;
 
-  llvm::Optional<TextureResourceHandle> Tex =
-      sample.src ? LoadTexture(sample.src.value()) : llvm::Optional<TextureResourceHandle>{};
+  std::optional<TextureResourceHandle> Tex =
+      sample.src ? LoadTexture(sample.src.value()) : std::optional<TextureResourceHandle>{};
 
   llvm::Value *SampleCount = nullptr;
 
@@ -2417,10 +2428,13 @@ Converter::operator()(const InstAtomicBinOp &atomic) {
   auto Buf = LoadBuffer(atomic.dst);
 
   if (Buf) {
-    auto IntPtrOffset = LoadAtomicOpAddress(Buf.getValue(), atomic.dst_address);
+    auto IntPtrOffset = LoadAtomicOpAddress(Buf.value(), atomic.dst_address);
     auto Ptr = ir.CreateGEP(ir.getInt32Ty(), Buf->Pointer, {IntPtrOffset});
     auto Value = air.CreateAtomicRMW(Op, Ptr, LoadOperand(atomic.src, kMaskComponentX));
-    StoreOperand(atomic.dst_original, Value);
+    if (Value)
+      StoreOperand(atomic.dst_original, Value);
+    else
+      return;
     return;
   }
 
@@ -2463,7 +2477,10 @@ Converter::operator()(const InstAtomicBinOp &atomic) {
       Address = ir.CreateSelect(OOB, llvm::ConstantInt::getAllOnesValue(Address->getType()), Address);
     auto Value =
         air.CreateAtomicRMW(Tex->Texture, Tex->Handle, Op, Address, LoadOperand(atomic.src, kMaskAll), ArrayIndex);
-    StoreOperand(atomic.dst_original, Value);
+    if (Value)
+      StoreOperand(atomic.dst_original, ir.CreateExtractElement(Value, uint64_t(0)));
+    else
+      return;
     return;
   }
 }
@@ -2476,7 +2493,7 @@ Converter::operator()(const InstAtomicImmCmpExchange &atomic) {
   auto Buf = LoadBuffer(atomic.dst_resource);
 
   if (Buf) {
-    auto IntPtrOffset = LoadAtomicOpAddress(Buf.getValue(), atomic.dst_address);
+    auto IntPtrOffset = LoadAtomicOpAddress(Buf.value(), atomic.dst_address);
     auto Ptr = ir.CreateGEP(ir.getInt32Ty(), Buf->Pointer, {IntPtrOffset});
     auto Value = ir.CreateAtomicCmpXchg(
         Ptr, LoadOperand(atomic.src0, kMaskComponentX), LoadOperand(atomic.src1, kMaskComponentX), {},
@@ -2554,7 +2571,7 @@ Converter::operator()(const InstAtomicImmDecrement &atomic) {
   StoreOperand(atomic.dst, ir.CreateSub(Value, ir.getInt32(1)));
 }
 
-llvm::Optional<InterpolantHandle>
+std::optional<InterpolantHandle>
 Converter::LoadInterpolant(uint32_t Index) {
   if (!res.interpolant_map.contains(Index))
     return {};
@@ -2564,7 +2581,7 @@ Converter::LoadInterpolant(uint32_t Index) {
   if (h.takeError())
     return {};
 
-  return llvm::Optional<InterpolantHandle>({h.get(), interpolant.perspective});
+  return std::optional<InterpolantHandle>({h.get(), interpolant.perspective});
 }
 
 void
@@ -2583,8 +2600,11 @@ Converter::operator()(const InstInterpolateSample &eval) {
   if (!Itp)
     return;
 
-  auto Value =
-      air.CreateInterpolateAtSample(Itp->Handle, LoadOperand(eval.sample_index, kMaskComponentX), Itp->Perspective);
+  // FXC emits SV_SampleIndex as a direct input operand here. Native WARP
+  // evaluates that form at sample 0 for every sample-frequency invocation;
+  // preserve that behavior without changing other dynamic index expressions.
+  auto SampleIndex = eval.sample_index_is_input ? ir.getInt32(0) : LoadOperand(eval.sample_index, kMaskComponentX);
+  auto Value = air.CreateInterpolateAtSample(Itp->Handle, SampleIndex, Itp->Perspective);
   StoreOperand(eval.dst, MaskSwizzle(Value, GetMask(eval.dst), eval.read_swizzle));
 }
 

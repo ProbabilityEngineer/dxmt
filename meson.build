@@ -51,6 +51,12 @@ compiler_args = [
   '-fmacro-prefix-map=' + source_prefix_path + '/=',
 ]
 
+if cpu_family == 'aarch64' and dxmt_crossbuild
+  compiler_args += [
+    '-marm64x',
+  ]
+endif
+
 if cpu_family == 'x86'
   compiler_args += [
     '-msse',

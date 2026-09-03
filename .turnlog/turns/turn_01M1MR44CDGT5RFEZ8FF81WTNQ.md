@@ -1,0 +1,34 @@
+# Turn turn_01M1MR44CDGT5RFEZ8FF81WTNQ
+
+Session: sess_01M1MA74MDHYSN8MNSMVXZYNPN  
+Model: unknown  
+Summary: Analyzed 15-second Elite telemetry at /private/tmp/EliteDangerous64_d3d11.log. Found root cause of full-frame menu/hangar alternation: each flickering frame logs `OMSetRenderTargets: invalid render targets` immediately before Present, while physical backbuffer draw count is 2. DXMT rejects a pass pairing the 3024x1964 physical swapchain color target with logical 1512x982 companion render/depth attachment(s). Next fix must promote matching full-resolution D3D render/depth resources to physical backing dimensions; viewport/ClearView/Present tweaks are insufficient.  
+Created: 2026-09-03T23:02:06.989544Z
+
+## Verification
+
+- none
+
+## Attachments
+
+- none
+
+## VCS
+
+```json
+{
+  "kind": "jj",
+  "jj_change": "wqmqzlwqnuvs",
+  "jj_commit": "7950090b4014",
+  "jj_operation": "86fa022b69b0",
+  "git_head": null,
+  "git_branch": null,
+  "dirty": true,
+  "changed_files": [
+    "src/d3d11/d3d11_context_impl.cpp",
+    "src/d3d11/d3d11_resource.hpp",
+    "src/d3d11/d3d11_swapchain.cpp",
+    "src/d3d11/d3d11_telemetry.hpp"
+  ]
+}
+```

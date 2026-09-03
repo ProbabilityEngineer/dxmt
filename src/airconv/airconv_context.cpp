@@ -23,6 +23,7 @@
 #include "llvm/Transforms/IPO/ForceFunctionAttrs.h"
 #include "llvm/Transforms/IPO/InferFunctionAttrs.h"
 #include "llvm/Transforms/Utils/Mem2Reg.h"
+#include "llvm/Transforms/Scalar/SROA.h"
 
 #include "airconv_context.hpp"
 
@@ -39,28 +40,28 @@ namespace dxmt {
 
 void initializeModule(llvm::Module &M) {
   M.setSourceFileName("airconv_generated.metal");
-  M.setTargetTriple("air64-apple-macosx14.0.0");
+M.setTargetTriple("air64-apple-macosx14.0.0");
   M.setDataLayout(
     "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:"
     "64:64-v16:16:16-v24:32:32-v32:32:32-v48:64:64-v64:64:64-v96:128:128-"
     "v128:128:128-v192:256:256-v256:256:256-v512:512:512-v1024:1024:1024-n8:"
     "16:32"
-  );
+  ); // <--- Notice the closing semicolon here
+
   M.setSDKVersion(VersionTuple(15, 0));
   M.addModuleFlag(Module::ModFlagBehavior::Error, "wchar_size", 4);
   M.addModuleFlag(Module::ModFlagBehavior::Max, "frame-pointer", 2);
   M.addModuleFlag(Module::ModFlagBehavior::Max, "air.max_device_buffers", 31);
   M.addModuleFlag(Module::ModFlagBehavior::Max, "air.max_constant_buffers", 31);
   M.addModuleFlag(
-    Module::ModFlagBehavior::Max, "air.max_threadgroup_buffers", 31
+      Module::ModFlagBehavior::Max, "air.max_threadgroup_buffers", 31
   );
   M.addModuleFlag(Module::ModFlagBehavior::Max, "air.max_textures", 128);
   M.addModuleFlag(
-    Module::ModFlagBehavior::Max, "air.max_read_write_textures", 8
+      Module::ModFlagBehavior::Max, "air.max_read_write_textures", 8
   );
   M.addModuleFlag(Module::ModFlagBehavior::Max, "air.max_samplers", 16);
-
-};
+} // <--- This closing brace must be here, after all the M.addModuleFlag calls
 
 static std::atomic_flag llvm_overwrite = false;
 
@@ -124,7 +125,7 @@ runOptimizationPasses(llvm::Module &M) {
     // Compare/branch metadata may alter the behavior of passes like SimplifyCFG.
     EarlyFPM.addPass(LowerExpectIntrinsicPass());
     EarlyFPM.addPass(SimplifyCFGPass());
-    EarlyFPM.addPass(SROAPass());
+	EarlyFPM.addPass(llvm::SROAPass());
     EarlyFPM.addPass(EarlyCSEPass());
     MPM.addPass(createModuleToFunctionPassAdaptor(std::move(EarlyFPM), true /* ? */));
   }

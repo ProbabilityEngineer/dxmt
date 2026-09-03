@@ -212,17 +212,17 @@ convert_dxbc_geometry_shader(
           llvm::ArrayType::get(types._float4, max_output_register), resource_map.output.ptr_float4,
           {builder.getInt32(0), builder.getInt32(x.value().reg), builder.getInt32(x.value().component)}
       );
-      air.CreateSetMeshClipDistance(vertex, builder.getInt32(x.index()), builder.CreateLoad(types._float, src_ptr));
+      air.CreateSetMeshClipDistance(vertex, builder.getInt32(x.index()), SafeCreateLoad(builder, types._float, src_ptr));
     }
   };
 
   if (topology == air::MeshOutputTopology::Triangle) {
     resource_map.call_emit = [&]() -> IREffect {
-      auto current_write_vertex = builder.CreateLoad(types._int, next_write_vertex);
-      auto current_vertex_offset = builder.CreateLoad(types._int, vertex_offset);
+      auto current_write_vertex = SafeCreateLoad(builder, types._int, next_write_vertex);
+      auto current_vertex_offset = SafeCreateLoad(builder, types._int, vertex_offset);
       auto current_vertex_with_offset = builder.CreateAdd(current_vertex_offset, current_write_vertex);
 
-      auto current_primitive_count = builder.CreateLoad(types._int, primitive_count);
+      auto current_primitive_count = SafeCreateLoad(builder, types._int, primitive_count);
       auto current_primitive_idx = builder.CreateAdd(current_primitive_count, current_write_vertex);
 
       auto even_winding = builder.CreateZExt(
@@ -253,7 +253,7 @@ convert_dxbc_geometry_shader(
       co_return {};
     };
     resource_map.call_cut = [&]() -> IREffect {
-      auto current_write_vertex = builder.CreateLoad(types._int, next_write_vertex);
+      auto current_write_vertex = SafeCreateLoad(builder, types._int, next_write_vertex);
       builder.CreateStore(zero_const, next_write_vertex);
 
       auto has_valid_primitive = builder.CreateICmpUGT(current_write_vertex, builder.getInt32(2));
@@ -262,22 +262,22 @@ convert_dxbc_geometry_shader(
       );
       auto add_vertex_count = builder.CreateSelect(has_valid_primitive, current_write_vertex, zero_const);
       builder.CreateStore(
-          builder.CreateAdd(builder.CreateLoad(types._int, vertex_offset), add_vertex_count), vertex_offset
+          builder.CreateAdd(SafeCreateLoad(builder, types._int, vertex_offset), add_vertex_count), vertex_offset
       );
       builder.CreateStore(
-          builder.CreateAdd(builder.CreateLoad(types._int, primitive_count), add_primitive_count), primitive_count
+          builder.CreateAdd(SafeCreateLoad(builder, types._int, primitive_count), add_primitive_count), primitive_count
       );
       co_return {};
     };
   } else if (topology == air::MeshOutputTopology::Line) {
     resource_map.call_emit = [&]() -> IREffect {
-      auto current_write_vertex = builder.CreateLoad(types._int, next_write_vertex);
+      auto current_write_vertex = SafeCreateLoad(builder, types._int, next_write_vertex);
       builder.CreateStore(builder.CreateAdd(one_const, current_write_vertex), next_write_vertex);
 
-      auto current_vertex_offset = builder.CreateLoad(types._int, vertex_offset);
+      auto current_vertex_offset = SafeCreateLoad(builder, types._int, vertex_offset);
       auto current_vertex_with_offset = builder.CreateAdd(current_vertex_offset, current_write_vertex);
 
-      auto current_primitive_count = builder.CreateLoad(types._int, primitive_count);
+      auto current_primitive_count = SafeCreateLoad(builder, types._int, primitive_count);
       auto current_primitive_idx = builder.CreateAdd(current_primitive_count, current_write_vertex);
 
       MeshOutputContext gs_out_ctx{current_vertex_with_offset, current_primitive_idx};
@@ -298,7 +298,7 @@ convert_dxbc_geometry_shader(
       co_return {};
     };
     resource_map.call_cut = [&]() -> IREffect {
-      auto current_write_vertex = builder.CreateLoad(types._int, next_write_vertex);
+      auto current_write_vertex = SafeCreateLoad(builder, types._int, next_write_vertex);
       builder.CreateStore(zero_const, next_write_vertex);
 
       auto has_valid_primitive = builder.CreateICmpUGT(current_write_vertex, builder.getInt32(1));
@@ -307,17 +307,17 @@ convert_dxbc_geometry_shader(
       );
       auto add_vertex_count = builder.CreateSelect(has_valid_primitive, current_write_vertex, zero_const);
       builder.CreateStore(
-          builder.CreateAdd(builder.CreateLoad(types._int, vertex_offset), add_vertex_count), vertex_offset
+          builder.CreateAdd(SafeCreateLoad(builder, types._int, vertex_offset), add_vertex_count), vertex_offset
       );
       builder.CreateStore(
-          builder.CreateAdd(builder.CreateLoad(types._int, primitive_count), add_primitive_count), primitive_count
+          builder.CreateAdd(SafeCreateLoad(builder, types._int, primitive_count), add_primitive_count), primitive_count
       );
       co_return {};
     };
   } else {
     resource_map.call_emit = [&]() -> IREffect {
       // only one accumulator to maintain, simple one ~
-      auto current_write_vertex = builder.CreateLoad(types._int, next_write_vertex);
+      auto current_write_vertex = SafeCreateLoad(builder, types._int, next_write_vertex);
       builder.CreateStore(builder.CreateAdd(one_const, current_write_vertex), next_write_vertex);
 
       MeshOutputContext gs_out_ctx{current_write_vertex, current_write_vertex};
@@ -336,9 +336,9 @@ convert_dxbc_geometry_shader(
 
   auto payload = function->getArg(payload_idx);
   auto valid_primitive_mask =
-      builder.CreateLoad(types._int, builder.CreateConstInBoundsGEP1_32(types._int, payload, 1));
+      SafeCreateLoad(builder, types._int, builder.CreateConstInBoundsGEP1_32(types._int, payload, 1));
   auto warp_id =
-      builder.CreateLoad(types._int, builder.CreateConstInBoundsGEP1_32(types._int, payload, 2));
+      SafeCreateLoad(builder, types._int, builder.CreateConstInBoundsGEP1_32(types._int, payload, 2));
 
   resource_map.patch_id = builder.CreateAdd(builder.CreateMul(warp_id, builder.getInt32(warp_primitive_count)), primitive_id_in_warp);
 
@@ -378,8 +378,8 @@ convert_dxbc_geometry_shader(
   auto load_vertex = [&](pvalue vertex_index, uint32_t vid) {
     for (unsigned reg = 0; reg < pVertexStage->max_output_register; reg++) {
       builder.CreateStore(
-          builder.CreateLoad(
-              types._int4, builder.CreateGEP(
+          SafeCreateLoad(
+              builder, types._int4, builder.CreateGEP(
                                types._int4, vertices_ptr,
                                {builder.CreateAdd(
                                    builder.CreateMul(vertex_index, builder.getInt32(pVertexStage->max_output_register)),
@@ -509,7 +509,7 @@ convert_dxbc_geometry_shader(
   if (auto err = resource_map.call_cut().build(ctx).takeError()) {
     return err;
   }
-  air.CreateSetMeshPrimitiveCount(builder.CreateLoad(types._int, primitive_count));
+  air.CreateSetMeshPrimitiveCount(SafeCreateLoad(builder, types._int, primitive_count));
 
   builder.CreateRetVoid();
   module.getOrInsertNamedMetadata("air.mesh")->addOperand(function_metadata);
@@ -639,7 +639,8 @@ convert_dxbc_vertex_for_geometry_shader(
   auto warp_id = builder.CreateExtractElement(threadgroup_position_in_grid, (uint32_t)0);
   auto instance_id = builder.CreateExtractElement(threadgroup_position_in_grid, (uint32_t)1);
 
-  auto draw_arguments = builder.CreateLoad(
+  auto draw_arguments = SafeCreateLoad(
+    builder,
     is_indexed_draw ? types._dxmt_draw_indexed_arguments
                     : types._dxmt_draw_arguments,
     function->getArg(draw_argument_idx)
@@ -665,7 +666,7 @@ convert_dxbc_vertex_for_geometry_shader(
       llvm::ArrayType::get(types._int4, max_output_register)->getPointerTo((uint32_t)air::AddressSpace::object_data)
   );
   resource_map.output.ptr_int4 = builder.CreateGEP(
-      resource_map.output.ptr_int4->getType()->getNonOpaquePointerElementType(), resource_map.output.ptr_int4,
+      llvm::ArrayType::get(types._int4, max_output_register), resource_map.output.ptr_int4,
       {warp_vertex_id}
   );
   resource_map.output.ptr_float4 = builder.CreateBitCast(
@@ -673,7 +674,7 @@ convert_dxbc_vertex_for_geometry_shader(
       llvm::ArrayType::get(types._float4, max_output_register)->getPointerTo((uint32_t)air::AddressSpace::object_data)
   );
   resource_map.output.ptr_float4 = builder.CreateGEP(
-      resource_map.output.ptr_float4->getType()->getNonOpaquePointerElementType(), resource_map.output.ptr_float4,
+      llvm::ArrayType::get(types._float4, max_output_register), resource_map.output.ptr_float4,
       {warp_vertex_id}
   );
 
@@ -739,8 +740,8 @@ convert_dxbc_vertex_for_geometry_shader(
     auto start_index = builder.CreateExtractValue(draw_arguments, 2);
     auto index_buffer = function->getArg(index_buffer_idx);
     auto index_buffer_element_type = index_buffer->getType()->getNonOpaquePointerElementType();
-    auto vertex_id = builder.CreateLoad(
-        index_buffer_element_type,
+    auto vertex_id = SafeCreateLoad(
+        builder, index_buffer_element_type,
         builder.CreateGEP(index_buffer_element_type, index_buffer, {builder.CreateAdd(start_index, global_index_id)})
     );
     // so 0xFFFF is mapped to 0xFFFFFFFF, other values are zero-extended
@@ -811,7 +812,7 @@ convert_dxbc_vertex_for_geometry_shader(
    */
 
   pvalue valid_primitive_mask = builder.getInt32(0);
-  auto valid_vertex_result = builder.CreateLoad(types._int, valid_vertex_mask);
+  auto valid_vertex_result = SafeCreateLoad(builder, types._int, valid_vertex_mask);
 
   for (unsigned primitive_id = 0; primitive_id < warp_primitive_count; primitive_id++) {
     pvalue primitive_valid_result = builder.getInt1(1);

@@ -86,4 +86,5 @@ public:
 
   llvm::LLVMContext &context;
 };
+
 } // namespace dxmt

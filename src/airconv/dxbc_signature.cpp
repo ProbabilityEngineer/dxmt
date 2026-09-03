@@ -521,12 +521,9 @@ void handle_signature_ps(
           return make_irvalue([=](struct context ctx) {
             return ctx.builder.CreateInsertValue(
               v,
-              ctx.builder.CreateLoad(
-                ctx.types._float,
-                ctx.builder.CreateConstInBoundsGEP1_32(
-                  ctx.types._float, ctx.resource.depth_output_reg, 0
-                )
-              ),
+              SafeCreateLoad(ctx.builder, ctx.types._float, ctx.builder.CreateConstInBoundsGEP1_32(
+                ctx.types._float, ctx.resource.depth_output_reg, 0
+              )),
               {assigned_index}
             );
           });
@@ -546,9 +543,7 @@ void handle_signature_ps(
       signature_handlers.push_back([=](SignatureContext &ctx) {
         ctx.epilogue >> [=](pvalue v) {
           return make_irvalue([=](struct context ctx) {
-            auto ostencil = ctx.builder.CreateLoad(
-                ctx.types._int, ctx.builder.CreateConstInBoundsGEP1_32(ctx.types._int, ctx.resource.stencil_ref_reg, 0)
-            );
+            auto ostencil = SafeCreateLoad(ctx.builder, ctx.types._int, ctx.builder.CreateConstInBoundsGEP1_32(ctx.types._int, ctx.resource.stencil_ref_reg, 0));
             return ctx.builder.CreateInsertValue(v, ostencil, {assigned_index});
           });
         };
@@ -571,12 +566,9 @@ void handle_signature_ps(
       signature_handlers.push_back([=](SignatureContext &ctx) {
         ctx.epilogue >> [=](pvalue v) {
           return make_irvalue([=](struct context ctx) {
-            auto odepth = ctx.builder.CreateLoad(
-              ctx.types._int,
-              ctx.builder.CreateConstInBoundsGEP1_32(
-                ctx.types._int, ctx.resource.coverage_mask_reg, 0
-              )
-            );
+            auto odepth = SafeCreateLoad(ctx.builder, ctx.types._int, ctx.builder.CreateConstInBoundsGEP1_32(
+              ctx.types._int, ctx.resource.coverage_mask_reg, 0
+            ));
             return ctx.builder.CreateInsertValue(
               v,
               ctx.pso_sample_mask != 0xffffffff

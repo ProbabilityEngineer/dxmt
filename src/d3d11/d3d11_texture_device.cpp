@@ -491,8 +491,28 @@ CreateDeviceTexture2D(MTLD3D11Device *pDevice,
                       const D3D11_TEXTURE2D_DESC1 *pDesc,
                       const D3D11_SUBRESOURCE_DATA *pInitialData,
                       ID3D11Texture2D1 **ppTexture) {
-  return CreateDeviceTextureInternal<tag_texture_2d>(pDevice, pDesc,
-                                                     pInitialData, ppTexture);
+  auto desc = *pDesc;
+  const auto logical_width = hidpi_swapchain_logical_width.load(std::memory_order_relaxed);
+  const auto logical_height = hidpi_swapchain_logical_height.load(std::memory_order_relaxed);
+  const auto scale = hidpi_swapchain_scale.load(std::memory_order_relaxed);
+  const bool is_hidpi_companion =
+      scale > 1 && pInitialData == nullptr && desc.CPUAccessFlags == 0 &&
+      (desc.BindFlags & (D3D11_BIND_RENDER_TARGET | D3D11_BIND_DEPTH_STENCIL)) &&
+      desc.Width == logical_width && desc.Height == logical_height;
+
+  if (is_hidpi_companion) {
+    // The game creates full-window color/depth attachments from Wine's
+    // logical client size. Match the physical swapchain backing resource so
+    // Metal can encode the complete render pass instead of rejecting mixed
+    // logical/physical attachments.
+    desc.Width *= scale;
+    desc.Height *= scale;
+  }
+
+  auto hr = CreateDeviceTextureInternal<tag_texture_2d>(pDevice, &desc, pInitialData, ppTexture);
+  if (SUCCEEDED(hr) && ppTexture && *ppTexture && is_hidpi_companion)
+    GetResourceCommon(static_cast<ID3D11Resource *>(*ppTexture))->hidpi_backing_resource_ = true;
+  return hr;
 }
 
 HRESULT

@@ -15,6 +15,8 @@
 #include <string>
 #include <functional>
 #include "./sha1.h"
+#include <array>
+#include <functional>
 
 namespace dxmt {
 

@@ -20,6 +20,7 @@
 #include "Metal.hpp"
 #include "d3d11_device.hpp"
 #include "d3d11_state_object.hpp"
+#include "d3d11_telemetry.hpp"
 #include "dxmt_sampler.hpp"
 #include "log/log.hpp"
 #include "../d3d10/d3d10_state_object.hpp"
@@ -770,14 +771,21 @@ StateObjectCache<D3D11_SAMPLER_DESC, D3D11SamplerState>::CreateStateObject(
                desc.BorderColor[2] == 1.0f && desc.BorderColor[3] == 1.0f) {
       info.border_color = WMTSamplerBorderColorOpaqueWhite;
     } else {
-      WARN("CreateSamplerState: Unsupported border color (",
-           desc.BorderColor[0], ", ", desc.BorderColor[1], ", ",
-           desc.BorderColor[2], ", ", desc.BorderColor[3], ")");
+      ERR("CreateSamplerState: custom border colors are not supported by Metal (",
+          desc.BorderColor[0], ", ", desc.BorderColor[1], ", ",
+          desc.BorderColor[2], ", ", desc.BorderColor[3], ")");
+      return E_NOTIMPL;
     }
   }
 
   info.support_argument_buffers = true;
   info.normalized_coords = true;
+
+  eliteTelemetry("sampler filter=", uint32_t(desc.Filter), " comparison=", uint32_t(desc.ComparisonFunc),
+                 " address=", uint32_t(desc.AddressU), ",", uint32_t(desc.AddressV), ",",
+                 uint32_t(desc.AddressW), " lod=", desc.MinLOD, ":", desc.MaxLOD,
+                 " bias=", desc.MipLODBias, " anisotropy=", desc.MaxAnisotropy,
+                 " metal_compare=", uint32_t(info.compare_function));
 
   auto sampler = Sampler::createSampler(device->GetMTLDevice(), info, desc.MipLODBias);
 

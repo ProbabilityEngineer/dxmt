@@ -536,4 +536,14 @@ args_get_data(const struct SM50_SHADER_COMPILATION_ARGUMENT_DATA *data, data_t *
   return false;
 }
 
+// LLVM 15 Universal Overloaded Smart Fallbacks for legacy CreateLoad methods
+template<typename BuilderT>
+inline llvm::LoadInst* SafeCreateLoad(BuilderT &B, llvm::Type *Ty, llvm::Value *Ptr, const llvm::Twine &Name = "") {
+  // If a type is already explicitly provided, pass it straight to native LLVM
+  return B.CreateLoad(Ty, Ptr, Name);
+}
+
+// Do not provide a type-inference overload: opaque pointers cannot reveal the
+// pointee type. Every caller must use the explicit (B, Ty, Ptr) overload above.
+
 } // namespace dxmt::dxbc

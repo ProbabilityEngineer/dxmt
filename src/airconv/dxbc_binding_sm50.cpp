@@ -4,6 +4,7 @@
 #include "shader_common.hpp"
 #include "llvm/IR/Function.h"
 #include <memory>
+#include "llvm/Support/raw_ostream.h"
 
 namespace dxmt::dxbc {
 
@@ -15,12 +16,24 @@ public:
   GetArgument(llvm::air::AIRBuilder &AIR, uint32_t TableIndex, uint32_t Index) {
     auto Fn = AIR.builder.GetInsertBlock()->getParent();
     auto Arg = Fn->getArg(TableIndex);
-    auto TyArg = llvm::cast<llvm::PointerType>(Arg->getType())->getNonOpaquePointerElementType();
-    auto TyStruct = llvm::cast<llvm::StructType>(TyArg);
+    auto *Pointer = llvm::dyn_cast<llvm::PointerType>(Arg->getType());
+    auto *TyArg = Pointer && !Pointer->isOpaque()
+        ? Pointer->getNonOpaquePointerElementType()
+        : nullptr;
+    auto TyStruct = TyArg ? llvm::dyn_cast<llvm::StructType>(TyArg) : nullptr;
+    if (!TyStruct) {
+      llvm::errs() << "DXMT SM50 binding diagnostic: argument type=";
+      Arg->getType()->print(llvm::errs());
+      llvm::errs() << ", pointee type=";
+      if (TyArg) TyArg->print(llvm::errs());
+      else llvm::errs() << "<opaque or non-pointer>";
+      llvm::errs() << "\n";
+      llvm::report_fatal_error("DXMT expected SM50 struct argument");
+    }
     return AIR.builder.CreateLoad(TyStruct->getElementType(Index), AIR.builder.CreateStructGEP(TyStruct, Arg, Index));
   };
 
-  virtual llvm::Optional<ConstantBufferDescriptor>
+  virtual std::optional<ConstantBufferDescriptor>
   GetConstantBuffer(llvm::air::AIRBuilder &Builder, RangeId Range, llvm::Value *Index) {
     if (~ConstantBufferTableIndex == 0)
       return {};
@@ -31,7 +44,7 @@ public:
     return ConstantBufferDescriptor{Pointer, nullptr};
   }
 
-  virtual llvm::Optional<SamplerDescriptor>
+  virtual std::optional<SamplerDescriptor>
   GetSampler(llvm::air::AIRBuilder &Builder, RangeId Range, llvm::Value *Index) {
     if (~BindingTableIndex == 0)
       return {};
@@ -44,7 +57,7 @@ public:
     return SamplerDescriptor{Sampler, CubeSampler, Metadata};
   }
 
-  virtual llvm::Optional<TextureDescirptor>
+  virtual std::optional<TextureDescirptor>
   GetSRVTexture(llvm::air::AIRBuilder &Builder, RangeId Range, llvm::Value *Index) {
     if (~BindingTableIndex == 0)
       return {};
@@ -72,7 +85,7 @@ public:
     return TextureDescirptor{Handle, Metadata, false, ResourceKind, ResourceKindLogical, MemoryAccess, SampleType};
   }
 
-  virtual llvm::Optional<TextureDescirptor>
+  virtual std::optional<TextureDescirptor>
   GetUAVTexture(llvm::air::AIRBuilder &Builder, RangeId Range, llvm::Value *Index) {
     if (~BindingTableIndex == 0)
       return {};
@@ -102,7 +115,7 @@ public:
                              MemoryAccess, SampleType};
   }
 
-  virtual llvm::Optional<BufferDescriptor>
+  virtual std::optional<BufferDescriptor>
   GetSRVBuffer(llvm::air::AIRBuilder &Builder, RangeId Range, llvm::Value *Index) {
     if (~BindingTableIndex == 0)
       return {};
@@ -116,7 +129,7 @@ public:
     return BufferDescriptor{Handle, Metadata, Iter->second.structure_stride, false};
   }
 
-  virtual llvm::Optional<BufferDescriptor>
+  virtual std::optional<BufferDescriptor>
   GetUAVBuffer(llvm::air::AIRBuilder &Builder, RangeId Range, llvm::Value *Index) {
     if (~BindingTableIndex == 0)
       return {};
@@ -129,7 +142,7 @@ public:
     auto Metadata = GetArgument(Builder, BindingTableIndex, Iter->second.arg_metadata_index);
     return BufferDescriptor{Handle, Metadata, Iter->second.structure_stride, Iter->second.global_coherent};
   }
-  virtual llvm::Optional<CounterDescriptor>
+  virtual std::optional<CounterDescriptor>
   GetUAVCounter(llvm::air::AIRBuilder &Builder, RangeId Range, llvm::Value *Index) {
     if (~BindingTableIndex == 0)
       return {};

@@ -17,7 +17,7 @@
  */
 
 #pragma once
-#include "llvm/ADT/Optional.h"
+// #include "llvm/ADT/Optional.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/FMF.h"
 #include "llvm/IR/IRBuilder.h"
@@ -28,6 +28,7 @@
 #include "air_builder.hpp"
 #include "tl/generator.hpp"
 #include "ftl.hpp"
+#include <optional>
 
 namespace dxmt::dxbc {
 
@@ -138,49 +139,49 @@ public:
 
   llvm::Value *ApplySrcModifier(SrcOperandCommon C, llvm::Value *Value, mask_t Mask);
 
-  llvm::Optional<TextureResourceHandle> LoadTexture(const SrcOperandResource &SrcOp);
-  llvm::Optional<TextureResourceHandle> LoadTexture(const SrcOperandUAV &SrcOp);
-  llvm::Optional<TextureResourceHandle> LoadTexture(const AtomicDstOperandUAV &DstOp);
-  llvm::Optional<TextureResourceHandle>
+  std::optional<TextureResourceHandle> LoadTexture(const SrcOperandResource &SrcOp);
+  std::optional<TextureResourceHandle> LoadTexture(const SrcOperandUAV &SrcOp);
+  std::optional<TextureResourceHandle> LoadTexture(const AtomicDstOperandUAV &DstOp);
+  std::optional<TextureResourceHandle>
   LoadTexture(const std::variant<SrcOperandResource, SrcOperandUAV> &SrcOp) {
     return std::visit([this](auto &SrcOp) { return this->LoadTexture(SrcOp); }, SrcOp);
   }
-  llvm::Optional<TextureResourceHandle>
+  std::optional<TextureResourceHandle>
   LoadTexture(const std::variant<AtomicDstOperandUAV, AtomicOperandTGSM> &SrcOp) {
     return std::visit(
         patterns{
-            [](AtomicOperandTGSM &) { return llvm::Optional<TextureResourceHandle>(); },
+            [](AtomicOperandTGSM &) { return std::optional<TextureResourceHandle>(); },
             [this](auto &DstOp) { return this->LoadTexture(DstOp); }
         },
         SrcOp
     );
   }
 
-  llvm::Optional<SamplerHandle> LoadSampler(const SrcOperandSampler &SrcOp);
+  std::optional<SamplerHandle> LoadSampler(const SrcOperandSampler &SrcOp);
 
-  llvm::Optional<BufferResourceHandle> LoadBuffer(const SrcOperandResource &SrcOp);
-  llvm::Optional<BufferResourceHandle> LoadBuffer(const SrcOperandUAV &SrcOp);
-  llvm::Optional<AtomicBufferResourceHandle> LoadBuffer(const AtomicDstOperandUAV &DstOp);
-  llvm::Optional<BufferResourceHandle> LoadBuffer(const SrcOperandTGSM &SrcOp);
-  llvm::Optional<AtomicBufferResourceHandle> LoadBuffer(const AtomicOperandTGSM &DstOp);
-  llvm::Optional<BufferResourceHandle>
+  std::optional<BufferResourceHandle> LoadBuffer(const SrcOperandResource &SrcOp);
+  std::optional<BufferResourceHandle> LoadBuffer(const SrcOperandUAV &SrcOp);
+  std::optional<AtomicBufferResourceHandle> LoadBuffer(const AtomicDstOperandUAV &DstOp);
+  std::optional<BufferResourceHandle> LoadBuffer(const SrcOperandTGSM &SrcOp);
+  std::optional<AtomicBufferResourceHandle> LoadBuffer(const AtomicOperandTGSM &DstOp);
+  std::optional<BufferResourceHandle>
   LoadBuffer(const std::variant<SrcOperandResource, SrcOperandUAV> &SrcOp) {
     return std::visit([this](auto &SrcOp) { return this->LoadBuffer(SrcOp); }, SrcOp);
   }
-  llvm::Optional<BufferResourceHandle>
+  std::optional<BufferResourceHandle>
   LoadBuffer(const std::variant<SrcOperandResource, SrcOperandUAV, SrcOperandTGSM> &SrcOp) {
     return std::visit([this](auto &SrcOp) { return this->LoadBuffer(SrcOp); }, SrcOp);
   }
-  llvm::Optional<AtomicBufferResourceHandle>
+  std::optional<AtomicBufferResourceHandle>
   LoadBuffer(const std::variant<AtomicDstOperandUAV, AtomicOperandTGSM> &SrcOp) {
     return std::visit([this](auto &DstOp) { return this->LoadBuffer(DstOp); }, SrcOp);
   }
 
-  llvm::Optional<UAVCounterHandle> LoadCounter(const AtomicDstOperandUAV &SrcOp);
+  std::optional<UAVCounterHandle> LoadCounter(const AtomicDstOperandUAV &SrcOp);
 
   llvm::Value *LoadAtomicOpAddress(const AtomicBufferResourceHandle &Handle, const SrcOperand &Address);
 
-  llvm::Optional<InterpolantHandle> LoadInterpolant(uint32_t Index);
+  std::optional<InterpolantHandle> LoadInterpolant(uint32_t Index);
 
   /* Store Operands */
 

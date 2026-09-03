@@ -1,0 +1,35 @@
+# Turn turn_01M1MRBDC5H1BT9FY54ATSZRXY
+
+Session: sess_01M1MA74MDHYSN8MNSMVXZYNPN  
+Model: unknown  
+Summary: Implemented/deployed a candidate fix for confirmed mixed-attachment failure. The active HiDPI swapchain records logical dimensions/scale. CreateTexture2D promotes only matching full-window, GPU-only render-target/depth-stencil textures with no initial data to backing dimensions, marks them for existing viewport/scissor/ClearView physical scaling, and leaves ordinary assets/unrelated targets logical. ARM64EC build passed: DLL SHA-1 97230e9e8288825ea184cc9f20e13b07317292db. Deployed only after user quit; prior telemetry DLL backed up in Elite-arm-test system32/dxmt-hidpi-companion-targets-20260904-000520.  
+Created: 2026-09-03T23:06:05.573833Z
+
+## Verification
+
+- none
+
+## Attachments
+
+- none
+
+## VCS
+
+```json
+{
+  "kind": "jj",
+  "jj_change": "wqmqzlwqnuvs",
+  "jj_commit": "b395da3d4177",
+  "jj_operation": "446d96b868f7",
+  "git_head": null,
+  "git_branch": null,
+  "dirty": true,
+  "changed_files": [
+    "src/d3d11/d3d11_context_impl.cpp",
+    "src/d3d11/d3d11_resource.hpp",
+    "src/d3d11/d3d11_swapchain.cpp",
+    "src/d3d11/d3d11_telemetry.hpp",
+    "src/d3d11/d3d11_texture_device.cpp"
+  ]
+}
+```

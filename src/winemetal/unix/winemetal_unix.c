@@ -377,7 +377,11 @@ _MTLDevice_newComputePipelineState(void *obj) {
   NSError *err = NULL;
   descriptor.computeFunction = (id<MTLFunction>)info->compute_function;
   descriptor.threadGroupSizeIsMultipleOfThreadExecutionWidth = info->tgsize_is_multiple_of_sgwidth;
-  descriptor.supportIndirectCommandBuffers = info->support_indirect_command_buffers;
+  // Cross-architecture Unix calls have delivered noncanonical bool bytes here
+  // (for example 110/113 for a false value). Only the canonical true value
+  // enables this optional Metal feature; invalid bytes safely remain false.
+  descriptor.supportIndirectCommandBuffers =
+      *(const uint8_t *)&info->support_indirect_command_buffers == 1;
   for (unsigned i = 0; i < 31; i++) {
     if (info->immutable_buffers & (1 << i))
       descriptor.buffers[i].mutability = MTLMutabilityImmutable;

@@ -13,6 +13,7 @@
 #include "../d3d10/d3d10_buffer.hpp"
 #include "../d3d10/d3d10_texture.hpp"
 #include "../d3d10/d3d10_view.hpp"
+#include <atomic>
 #include <memory>
 #include <type_traits>
 #include <random>
@@ -26,6 +27,20 @@ DEFINE_COM_INTERFACE("9a6f6549-d4b1-45ea-8794-8503d190d3d1",
 };
 
 namespace dxmt {
+
+// A Wine Retina window exposes logical dimensions to D3D. DXMT records the
+// active logical swapchain size here so matching render/depth attachments can
+// be allocated at the physical backing size without changing unrelated assets.
+inline std::atomic_uint32_t hidpi_swapchain_logical_width = 0;
+inline std::atomic_uint32_t hidpi_swapchain_logical_height = 0;
+inline std::atomic_uint32_t hidpi_swapchain_scale = 1;
+
+inline void
+setHidpiSwapchainBackingSize(uint32_t width, uint32_t height, uint32_t scale) {
+  hidpi_swapchain_logical_width.store(width, std::memory_order_relaxed);
+  hidpi_swapchain_logical_height.store(height, std::memory_order_relaxed);
+  hidpi_swapchain_scale.store(scale, std::memory_order_relaxed);
+}
 
 template <typename RESOURCE_DESC>
 void UpgradeResourceDescription(const RESOURCE_DESC *pSrc, RESOURCE_DESC &dst) {
@@ -139,6 +154,7 @@ struct D3D11ResourceCommon : ID3D11Resource {
   Rc<Texture> texture_{};
   uint32_t bind_flags_{};
   Rc<KeyedMutex> keyed_mutex_{};
+  bool hidpi_backing_resource_ = false;
 
   const Rc<Buffer> &buffer() const {
     return buffer_;

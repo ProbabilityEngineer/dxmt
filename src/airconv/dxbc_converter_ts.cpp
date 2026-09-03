@@ -392,7 +392,7 @@ convert_dxbc_vertex_hull_shader(
         builder.CreateMul(patch_id, builder.getInt32(pHullStage->input_control_point_count)), control_point_id_in_patch
     );
 
-    auto draw_arguments = builder.CreateLoad(
+    auto draw_arguments = SafeCreateLoad(builder, 
         is_indexed_draw ? types._dxmt_draw_indexed_arguments : types._dxmt_draw_arguments,
         function->getArg(draw_argument_idx)
     );
@@ -447,7 +447,7 @@ convert_dxbc_vertex_hull_shader(
       auto start_index = builder.CreateExtractValue(draw_arguments, 2);
       auto index_buffer = function->getArg(index_buffer_idx);
       auto index_buffer_element_type = index_buffer->getType()->getNonOpaquePointerElementType();
-      auto vertex_id = builder.CreateLoad(
+      auto vertex_id = SafeCreateLoad(builder, 
           index_buffer_element_type,
           builder.CreateGEP(
               index_buffer_element_type, index_buffer, {builder.CreateAdd(start_index, control_point_index)}
@@ -654,12 +654,12 @@ convert_dxbc_vertex_hull_shader(
           {builder.getInt32(0), builder.getInt32(pc_scalar.reg), builder.getInt32(pc_scalar.component)}
       );
       if (pc_scalar.tess_factor_index >= 0 && pc_scalar.tess_factor_index < 6) {
-        auto value = builder.CreateBitCast(builder.CreateLoad(types._int, src_ptr), types._float);
+        auto value = builder.CreateBitCast(SafeCreateLoad(builder, types._int, src_ptr), types._float);
         auto value_clamp = air.CreateFPBinOp(llvm::air::AIRBuilder::fmin, value, max_tess_factor_value);
         tess_factors[pc_scalar.tess_factor_index] = value_clamp;
         builder.CreateStore(builder.CreateBitCast(value_clamp, types._int), dst_ptr);
       } else {
-        builder.CreateStore(builder.CreateLoad(types._int, src_ptr), dst_ptr);
+        builder.CreateStore(SafeCreateLoad(builder, types._int, src_ptr), dst_ptr);
       }
     };
 
@@ -706,7 +706,7 @@ convert_dxbc_vertex_hull_shader(
 
     llvm::Value *meshgroup_to_dispatch = air.getInt3(1, 1, 1);
     meshgroup_to_dispatch = builder.CreateInsertElement(
-        meshgroup_to_dispatch, builder.CreateLoad(types._int, workload_count), (uint64_t)0
+        meshgroup_to_dispatch, SafeCreateLoad(builder, types._int, workload_count), (uint64_t)0
     );
 
     air.CreateSetMeshProperties(meshgroup_to_dispatch);
@@ -905,7 +905,7 @@ convert_dxbc_tesselator_domain_shader(
   };
   dxbc::Converter dxbc(ctx.air, ctx, ctx.resource);
 
-  auto batched_patch_start = builder.CreateLoad(
+  auto batched_patch_start = SafeCreateLoad(builder, 
       types._int, builder.CreateGEP(payload_struct_type, payload, {builder.getInt32(0), builder.getInt32(2)})
   );
 
@@ -953,7 +953,7 @@ convert_dxbc_tesselator_domain_shader(
         llvm::ArrayType::get(types._int4, max_input_register), resource_map.patch_constant_output.ptr_int4,
         {builder.getInt32(0), builder.getInt32(x.value().reg), builder.getInt32(x.value().component)}
     );
-    builder.CreateStore(builder.CreateLoad(types._int, src_ptr), dst_ptr);
+    builder.CreateStore(SafeCreateLoad(builder, types._int, src_ptr), dst_ptr);
   }
 
   builder.CreateBr(vertex_start);
@@ -1006,25 +1006,25 @@ convert_dxbc_tesselator_domain_shader(
         {builder.getInt32(0), builder.getInt32(x.value().reg), builder.getInt32(x.value().component)}
     );
     air.CreateSetMeshClipDistance(
-        vertex_id, builder.getInt32(x.index()), builder.CreateLoad(types._float, src_ptr)
+        vertex_id, builder.getInt32(x.index()), SafeCreateLoad(builder, types._float, src_ptr)
     );
   }
 
   if (rta_idx_out != ~0u) {
     auto src_ptr = builder.CreateGEP(
-        resource_map.output.ptr_int4->getType()->getNonOpaquePointerElementType(), resource_map.output.ptr_int4,
+        llvm::VectorType::get(llvm::Type::getInt32Ty(context), 4, false), resource_map.output.ptr_int4,
         {builder.getInt32(0), builder.getInt32(gs_passthrough->Data.RenderTargetArrayIndexReg),
          builder.getInt32(gs_passthrough->Data.RenderTargetArrayIndexComponent)}
     );
-    air.CreateSetMeshRenderTargetArrayIndex(primitive_id, builder.CreateLoad(types._int, src_ptr));
+    air.CreateSetMeshRenderTargetArrayIndex(primitive_id, SafeCreateLoad(builder, types._int, src_ptr));
   }
   if (va_idx_out != ~0u) {
     auto src_ptr = builder.CreateGEP(
-        resource_map.output.ptr_int4->getType()->getNonOpaquePointerElementType(), resource_map.output.ptr_int4,
+        llvm::VectorType::get(llvm::Type::getInt32Ty(context), 4, false), resource_map.output.ptr_int4,
         {builder.getInt32(0), builder.getInt32(gs_passthrough->Data.ViewportArrayIndexReg),
          builder.getInt32(gs_passthrough->Data.ViewportArrayIndexComponent)}
     );
-    air.CreateSetMeshViewportArrayIndex(primitive_id, builder.CreateLoad(types._int, src_ptr));
+    air.CreateSetMeshViewportArrayIndex(primitive_id, SafeCreateLoad(builder, types._int, src_ptr));
   }
 
   if (point_rasterization) {

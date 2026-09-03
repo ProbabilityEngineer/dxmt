@@ -745,6 +745,9 @@ struct InstInterpolateCentroid {
 struct InstInterpolateSample {
   DstOperand dst;
   SrcOperand sample_index;
+  // WARP evaluates a direct input-register index (the SV_SampleIndex form
+  // emitted by FXC) as sample 0. Keep this distinct from other expressions.
+  bool sample_index_is_input;
   uint32_t regid;
   Swizzle read_swizzle;
 };

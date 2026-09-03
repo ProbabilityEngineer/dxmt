@@ -25,6 +25,20 @@
 
 namespace dxmt::dxbc {
 
+static llvm::StructType *debug_struct_argument(llvm::Value *value, llvm::StringRef where) {
+  auto *pointer = llvm::dyn_cast<llvm::PointerType>(value->getType());
+  auto *structure = pointer && !pointer->isOpaque()
+      ? llvm::dyn_cast<llvm::StructType>(pointer->getNonOpaquePointerElementType())
+      : nullptr;
+  if (!structure) {
+    llvm::errs() << "DXMT root-signature diagnostic at " << where << ": argument type=";
+    value->getType()->print(llvm::errs());
+    llvm::errs() << "\n";
+    llvm::report_fatal_error("DXMT expected a struct argument; see diagnostic above");
+  }
+  return structure;
+}
+
 using namespace llvm::air;
 
 class RootSignatureBindingMap : public BindingMap {
@@ -34,9 +48,8 @@ public:
     auto &B = AIR.builder;
     auto Fn = B.GetInsertBlock()->getParent();
     auto Arg = Fn->getArg(TableIndex);
-    auto TyArg = llvm::cast<llvm::PointerType>(Arg->getType())->getNonOpaquePointerElementType();
-    auto TyStruct = llvm::cast<llvm::StructType>(TyArg);
-    return B.CreateLoad(TyStruct->getElementType(Index), B.CreateStructGEP(TyStruct, Arg, Index));
+    auto TyStruct = debug_struct_argument(Arg, "GetArgument");
+    return SafeCreateLoad(B, TyStruct->getElementType(Index), B.CreateStructGEP(TyStruct, Arg, Index));
   };
 
   std::pair<llvm::Value *, llvm::Value *>
@@ -51,19 +64,14 @@ public:
     auto &B = AIR.builder;
     auto IdxDescriptor = B.CreateAdd(B.CreateSub(Index, AIR.getInt(RangeId)), AIR.getInt(DescriptorOffset));
     return {
-        B.CreateLoad(
-            HandleType, B.CreateGEP(
-                            TyBufferDescriptor, B.CreatePointerCast(IntPtr, TyBufferDescriptor->getPointerTo(2)),
-                            {IdxDescriptor, AIR.getInt(0) /* pointer */}
-                        )
-        ),
-        B.CreateLoad(
-            llvm::Type::getInt64Ty(AIR.getContext()),
-            B.CreateGEP(
-                TyBufferDescriptor, B.CreatePointerCast(IntPtr, TyBufferDescriptor->getPointerTo(2)),
-                {IdxDescriptor, AIR.getInt(1) /* metadata */}
-            )
-        )
+        SafeCreateLoad(B, HandleType, B.CreateGEP(
+                        TyBufferDescriptor, B.CreatePointerCast(IntPtr, TyBufferDescriptor->getPointerTo(2)),
+                        {IdxDescriptor, AIR.getInt(0) /* pointer */}
+                    )),
+        SafeCreateLoad(B, llvm::Type::getInt64Ty(AIR.getContext()), B.CreateGEP(
+            TyBufferDescriptor, B.CreatePointerCast(IntPtr, TyBufferDescriptor->getPointerTo(2)),
+            {IdxDescriptor, AIR.getInt(1) /* metadata */}
+        ))
     };
   }
 
@@ -78,12 +86,10 @@ public:
     );
     auto &B = AIR.builder;
     auto IdxDescriptor = B.CreateAdd(B.CreateSub(Index, AIR.getInt(RangeId)), AIR.getInt(DescriptorOffset));
-    return B.CreateLoad(
-        TyCounter, B.CreateGEP(
-                       TyBufferDescriptor, B.CreatePointerCast(IntPtr, TyBufferDescriptor->getPointerTo(2)),
-                       {IdxDescriptor, AIR.getInt(2) /* metadata */}
-                   )
-    );
+    return SafeCreateLoad(B, TyCounter, B.CreateGEP(
+                   TyBufferDescriptor, B.CreatePointerCast(IntPtr, TyBufferDescriptor->getPointerTo(2)),
+                   {IdxDescriptor, AIR.getInt(2) /* metadata */}
+               ));
   }
 
   llvm::Value *
@@ -91,12 +97,11 @@ public:
     auto &B = AIR.builder;
     auto Fn = B.GetInsertBlock()->getParent();
     auto Arg = Fn->getArg(TableIndex);
-    auto TyArg = llvm::cast<llvm::PointerType>(Arg->getType())->getNonOpaquePointerElementType();
-    auto TyStruct = llvm::cast<llvm::StructType>(TyArg);
+    auto TyStruct = debug_struct_argument(Arg, "GetRootConstantPointer");
     return B.CreatePointerCast(B.CreateStructGEP(TyStruct, Arg, Index), AIR.getIntTy(4)->getPointerTo(2));
   };
 
-  virtual llvm::Optional<ConstantBufferDescriptor>
+  virtual std::optional<ConstantBufferDescriptor>
   GetConstantBuffer(llvm::air::AIRBuilder &Builder, RangeId Range, llvm::Value *Index) {
     if (~RootSignatureArgumentIndex == 0)
       return {};
@@ -132,31 +137,22 @@ public:
     auto &B = AIR.builder;
     auto IdxDescriptor = B.CreateAdd(B.CreateSub(Index, AIR.getInt(RangeId)), AIR.getInt(DescriptorOffset));
     return {
-        B.CreateLoad(
-            TySampleHandler, //
-            B.CreateGEP(
-                TySamplerDescriptor, B.CreatePointerCast(IntPtr, TySamplerDescriptor->getPointerTo(2)),
-                {IdxDescriptor, AIR.getInt(0) /*sampler*/}
-            )
-        ),
-        B.CreateLoad(
-            TySampleHandler, //
-            B.CreateGEP(
-                TySamplerDescriptor, B.CreatePointerCast(IntPtr, TySamplerDescriptor->getPointerTo(2)),
-                {IdxDescriptor, AIR.getInt(1) /* cube_sampler */}
-            )
-        ),
-        B.CreateLoad(
-            llvm::Type::getInt64Ty(AIR.getContext()),
-            B.CreateGEP(
-                TySamplerDescriptor, B.CreatePointerCast(IntPtr, TySamplerDescriptor->getPointerTo(2)),
-                {IdxDescriptor, AIR.getInt(2) /* metadata*/}
-            )
-        )
+        SafeCreateLoad(B, TySampleHandler, B.CreateGEP(
+            TySamplerDescriptor, B.CreatePointerCast(IntPtr, TySamplerDescriptor->getPointerTo(2)),
+            {IdxDescriptor, AIR.getInt(0) /*sampler*/}
+        )),
+        SafeCreateLoad(B, TySampleHandler, B.CreateGEP(
+            TySamplerDescriptor, B.CreatePointerCast(IntPtr, TySamplerDescriptor->getPointerTo(2)),
+            {IdxDescriptor, AIR.getInt(1) /* cube_sampler */}
+        )),
+        SafeCreateLoad(B, llvm::Type::getInt64Ty(AIR.getContext()), B.CreateGEP(
+            TySamplerDescriptor, B.CreatePointerCast(IntPtr, TySamplerDescriptor->getPointerTo(2)),
+            {IdxDescriptor, AIR.getInt(2) /* metadata*/}
+        ))
     };
   }
 
-  virtual llvm::Optional<SamplerDescriptor>
+  virtual std::optional<SamplerDescriptor>
   GetSampler(llvm::air::AIRBuilder &Builder, RangeId Range, llvm::Value *Index) {
     auto Iter = Samplers.find(Range);
     if (Iter == Samplers.end()) {
@@ -195,24 +191,18 @@ public:
     auto &B = AIR.builder;
     auto IdxDescriptor = B.CreateAdd(B.CreateSub(Index, AIR.getInt(RangeId)), AIR.getInt(DescriptorOffset));
     return {
-        B.CreateLoad(
-            TyTextureHandle, //
-            B.CreateGEP(
-                TyTextureDescriptor, B.CreatePointerCast(IntPtr, TyTextureDescriptor->getPointerTo(2)),
-                {IdxDescriptor, AIR.getInt(0) /* pointer */}
-            )
-        ),
-        B.CreateLoad(
-            llvm::Type::getInt64Ty(AIR.getContext()),
-            B.CreateGEP(
-                TyTextureDescriptor, B.CreatePointerCast(IntPtr, TyTextureDescriptor->getPointerTo(2)),
-                {IdxDescriptor, AIR.getInt(1) /* metadata */}
-            )
-        )
+        SafeCreateLoad(B, TyTextureHandle, B.CreateGEP(
+            TyTextureDescriptor, B.CreatePointerCast(IntPtr, TyTextureDescriptor->getPointerTo(2)),
+            {IdxDescriptor, AIR.getInt(0) /* pointer */}
+        )),
+        SafeCreateLoad(B, llvm::Type::getInt64Ty(AIR.getContext()), B.CreateGEP(
+            TyTextureDescriptor, B.CreatePointerCast(IntPtr, TyTextureDescriptor->getPointerTo(2)),
+            {IdxDescriptor, AIR.getInt(1) /* metadata */}
+        ))
     };
   }
 
-  virtual llvm::Optional<TextureDescirptor>
+  virtual std::optional<TextureDescirptor>
   GetSRVTexture(llvm::air::AIRBuilder &Builder, RangeId Range, llvm::Value *Index) {
     if (~RootSignatureArgumentIndex == 0)
       return {};
@@ -242,7 +232,7 @@ public:
     return TextureDescirptor{Handle, Metadata, false, ResourceKind, ResourceKindLogical, MemoryAccess, SampleType};
   }
 
-  virtual llvm::Optional<TextureDescirptor>
+  virtual std::optional<TextureDescirptor>
   GetUAVTexture(llvm::air::AIRBuilder &Builder, RangeId Range, llvm::Value *Index) {
     if (~RootSignatureArgumentIndex == 0)
       return {};
@@ -274,7 +264,7 @@ public:
                              MemoryAccess, SampleType};
   }
 
-  virtual llvm::Optional<BufferDescriptor>
+  virtual std::optional<BufferDescriptor>
   GetSRVBuffer(llvm::air::AIRBuilder &Builder, RangeId Range, llvm::Value *Index) {
     if (~RootSignatureArgumentIndex == 0)
       return {};
@@ -296,7 +286,7 @@ public:
     return BufferDescriptor{Pointer, Metadata, SRV.structure_stride, false};
   }
 
-  virtual llvm::Optional<BufferDescriptor>
+  virtual std::optional<BufferDescriptor>
   GetUAVBuffer(llvm::air::AIRBuilder &Builder, RangeId Range, llvm::Value *Index) {
     if (~RootSignatureArgumentIndex == 0)
       return {};
@@ -320,7 +310,7 @@ public:
     return BufferDescriptor{Pointer, Metadata, UAV.structure_stride, UAV.global_coherent};
   }
 
-  virtual llvm::Optional<CounterDescriptor>
+  virtual std::optional<CounterDescriptor>
   GetUAVCounter(llvm::air::AIRBuilder &Builder, RangeId Range, llvm::Value *Index) {
     if (~RootSignatureArgumentIndex == 0)
       return {};

@@ -1,6 +1,7 @@
 #include "air_builder.hpp"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/Constants.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Value.h"
@@ -61,7 +62,7 @@ AIRBuilder::getTypeOverloadSuffix(Type *Ty, Signedness Sign) {
   uint32_t PointerAddrSpace = ~0u;
   if (auto TyPtr = dyn_cast<PointerType>(Ty)) {
     PointerAddrSpace = TyPtr->getAddressSpace();
-    Ty = TyPtr->getNonOpaquePointerElementType();
+    Ty = llvm::cast<llvm::PointerType>(TyPtr)->getScalarType();
   }
   Type *TyScaler = Ty->getScalarType();
   uint32_t VectorSize = 0;
@@ -1466,7 +1467,19 @@ AIRBuilder::CreateInterpolateAtSample(Value *Interpoant, Value *SampleIndex, boo
       FunctionType::get(getFloatTy(4), {Interpoant->getType(), getIntTy()}, false), Attrs
   );
 
-  return builder.CreateCall(Fn, {Interpoant, SampleIndex});
+  // Metal's sample interpolation intrinsic is reliable for literal sample
+  // indices, but the dynamic-index path can collapse to center interpolation
+  // on affected targets. Select from literal calls to preserve D3D11 semantics.
+  if (auto *Constant = llvm::dyn_cast<llvm::ConstantInt>(SampleIndex))
+    return builder.CreateCall(Fn, {Interpoant, Constant});
+
+  llvm::Value *Value = builder.CreateCall(Fn, {Interpoant, builder.getInt32(0)});
+  for (unsigned Sample = 1; Sample < 8; Sample++) {
+    auto SampleValue = builder.CreateCall(Fn, {Interpoant, builder.getInt32(Sample)});
+    auto IsSample = builder.CreateICmpEQ(SampleIndex, builder.getInt32(Sample));
+    Value = builder.CreateSelect(IsSample, SampleValue, Value);
+  }
+  return Value;
 }
 
 Value *
@@ -1812,7 +1825,7 @@ AIRBuilder::CreateAtomicRMW(AtomicRMWInst::BinOp Op, Value *Ptr, Value *Val) {
     debug << "invalid operation: atomicrmw: not a pointer.\n";
     return nullptr; // TODO
   }
-  if (TyPtr->getNonOpaquePointerElementType() != Val->getType()) {
+  if (TyPtr->isOpaque() || TyPtr->getNonOpaquePointerElementType() != Val->getType()) {
     debug << "invalid operation: atomicrmw: mismatched atomic operands.\n";
     return nullptr; // TODO
   }
@@ -1870,7 +1883,7 @@ AIRBuilder::CreateAtomicRMW(AtomicRMWInst::BinOp Op, Value *Ptr, Value *Val) {
     break;
   }
   auto TyOp = TyPtr->getNonOpaquePointerElementType();
-  FnName += getTypeOverloadSuffix(TyPtr->getNonOpaquePointerElementType(), Sign);
+  FnName += getTypeOverloadSuffix(TyOp, Sign);
 
   auto &Context = getContext();
   auto Attrs = AttributeList::get(

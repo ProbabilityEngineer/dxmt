@@ -1,0 +1,32 @@
+# Turn turn_01M1MGA57MPXRGF1RV7Q9FC8NX
+
+Session: sess_01M1MA74MDHYSN8MNSMVXZYNPN  
+Model: unknown  
+Summary: Recorded new user D3DMetal control observation for HiDPI investigation: under GPTK 1, D3DMetal HUD reports 3024x1964 at 2x in borderless and 3024x1964 at 1x fullscreen. Therefore DXMT must prioritize sharp 3024x1964 rendering and matching correct backing geometry; 1x HUD in borderless is not required. No code or bottle changes.  
+Created: 2026-09-03T20:45:35.860788Z
+
+## Verification
+
+- none
+
+## Attachments
+
+- none
+
+## VCS
+
+```json
+{
+  "kind": "jj",
+  "jj_change": "vkuzmuypmkuq",
+  "jj_commit": "c86a6166b900",
+  "jj_operation": "790fa7347f2d",
+  "git_head": null,
+  "git_branch": null,
+  "dirty": true,
+  "changed_files": [
+    "src/d3d11/d3d11_swapchain.cpp",
+    "src/dxmt/dxmt_presenter.cpp"
+  ]
+}
+```

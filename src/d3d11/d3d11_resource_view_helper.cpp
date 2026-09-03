@@ -1,5 +1,6 @@
 #include "dxmt_format.hpp"
 #include "d3d11_resource.hpp"
+#include "d3d11_telemetry.hpp"
 
 namespace dxmt {
 
@@ -30,6 +31,45 @@ InitializeAndNormalizeViewDescriptor(
   if (FAILED(MTLQueryDXGIFormat(pDevice->GetMTLDevice(), ViewDesc.Format, metal_format))) {
     ERR("Failed to create SRV due to unsupported format ", ViewDesc.Format);
     return E_FAIL;
+  }
+
+  if (DepthStencilPlanarFlags(pTexture->pixelFormat())) {
+    uint32_t first_mip = 0, mip_count = 0, first_array = 0, array_count = 0;
+    switch (ViewDesc.ViewDimension) {
+    case D3D_SRV_DIMENSION_TEXTURE1D:
+      first_mip = ViewDesc.Texture1D.MostDetailedMip;
+      mip_count = ViewDesc.Texture1D.MipLevels;
+      array_count = 1;
+      break;
+    case D3D_SRV_DIMENSION_TEXTURE1DARRAY:
+      first_mip = ViewDesc.Texture1DArray.MostDetailedMip;
+      mip_count = ViewDesc.Texture1DArray.MipLevels;
+      first_array = ViewDesc.Texture1DArray.FirstArraySlice;
+      array_count = ViewDesc.Texture1DArray.ArraySize;
+      break;
+    case D3D_SRV_DIMENSION_TEXTURE2D:
+      first_mip = ViewDesc.Texture2D.MostDetailedMip;
+      mip_count = ViewDesc.Texture2D.MipLevels;
+      array_count = 1;
+      break;
+    case D3D_SRV_DIMENSION_TEXTURE2DARRAY:
+      first_mip = ViewDesc.Texture2DArray.MostDetailedMip;
+      mip_count = ViewDesc.Texture2DArray.MipLevels;
+      first_array = ViewDesc.Texture2DArray.FirstArraySlice;
+      array_count = ViewDesc.Texture2DArray.ArraySize;
+      break;
+    default:
+      break;
+    }
+    eliteTelemetry("depth-srv texture=0x", std::hex, reinterpret_cast<uintptr_t>(pTexture), std::dec,
+                   " resource_format=", uint32_t(pTexture->pixelFormat()),
+                   " request_format=", uint32_t(ViewDesc.Format),
+                   " dimension=", uint32_t(ViewDesc.ViewDimension),
+                   " mip=", first_mip, ":", mip_count,
+                   " array=", first_array, ":", array_count,
+                   " texture_type=", uint32_t(pTexture->textureType()),
+                   " samples=", pTexture->sampleCount(), " resource_mips=", MiplevelCount,
+                   " resource_arrays=", ArraySize);
   }
 
   FixDepthStencilFormat(pTexture, metal_format);
@@ -520,6 +560,14 @@ InitializeAndNormalizeViewDescriptor(
     ERR("Failed to create DSV due to unsupported format ", ViewDesc.Format);
     return E_FAIL;
   }
+
+  eliteTelemetry("dsv resource_format=", uint32_t(pTexture->pixelFormat()),
+                 " request_format=", uint32_t(ViewDesc.Format),
+                 " dimension=", uint32_t(ViewDesc.ViewDimension),
+                 " flags=", uint32_t(ViewDesc.Flags),
+                 " texture_type=", uint32_t(pTexture->textureType()),
+                 " samples=", pTexture->sampleCount(), " mips=", MiplevelCount,
+                 " arrays=", ArraySize);
 
   ViewDesc.Flags = ViewDesc.Flags & 3;
   AttachmentDesc.DepthPlane = 0;

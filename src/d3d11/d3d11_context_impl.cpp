@@ -21,6 +21,7 @@
  */
 
 #include "Metal.hpp"
+#include "config/config.hpp"
 #include "d3d11_annotation.hpp"
 #include "d3d11_context.hpp"
 #include "d3d11_device_child.hpp"
@@ -37,6 +38,7 @@
 #include "dxmt_ring_bump_allocator.hpp"
 #include "dxmt_staging.hpp"
 #include "d3d11_resource.hpp"
+#include "d3d11_telemetry.hpp"
 #include "dxmt_texture.hpp"
 #include "util_flags.hpp"
 #include "util_math.hpp"
@@ -836,12 +838,14 @@ public:
       EmitST([texture = rtv->texture(), view = rtv->viewId()](ArgumentEncodingContext &enc) {
         enc.clear_rt_cmd.begin(texture, view);
       });
+      const auto is_hidpi_backbuffer = rtv->resource_->hidpi_backing_resource_;
+      const auto scale = is_hidpi_backbuffer ? 2 : 1;
       for (unsigned i = 0; i < NumRects; i++) {
         auto rect = pRect[i];
-        uint32_t rect_offset_x = std::max(rect.left, (LONG)0);
-        uint32_t rect_offset_y = std::max(rect.top, (LONG)0);
-        int32_t rect_width = rect.right - rect_offset_x;
-        int32_t rect_height = rect.bottom - rect_offset_y;
+        uint32_t rect_offset_x = std::max(rect.left * scale, (LONG)0);
+        uint32_t rect_offset_y = std::max(rect.top * scale, (LONG)0);
+        int32_t rect_width = rect.right * scale - rect_offset_x;
+        int32_t rect_height = rect.bottom * scale - rect_offset_y;
         if (rect_height <= 0 || rect_width <= 0)
           continue;
         EmitOP([=](ArgumentEncodingContext &enc) {
@@ -3568,6 +3572,14 @@ public:
     auto &ShaderStage = state_.ShaderStages[Stage];
     for (unsigned slot = StartSlot; slot < StartSlot + NumViews; slot++) {
       auto pView = static_cast<D3D11ShaderResourceView *>(ppShaderResourceViews[slot - StartSlot]);
+      if (pView && pView->texture() &&
+          DepthStencilPlanarFlags(pView->texture()->pixelFormat())) {
+        eliteTelemetry("depth-srv-bind stage=", uint32_t(Stage),
+                       " slot=", slot, " resource=0x", std::hex,
+                       reinterpret_cast<uintptr_t>(pView->texture().ptr()),
+                       " view=0x", reinterpret_cast<uintptr_t>(pView), std::dec,
+                       " view_id=", pView->viewId());
+      }
       if (pView && ValidateSRVHazard<Stage>(pView)) {
         bool replaced = false;
         auto &entry = ShaderStage.SRVs.bind(slot, {pView}, replaced, !pView->hazardsFree());
@@ -4889,8 +4901,10 @@ public:
       auto viewports = AllocateCommandData<WMTViewport>(state_.Rasterizer.NumViewports);
       for (unsigned i = 0; i < state_.Rasterizer.NumViewports; i++) {
         auto &d3dViewport = state_.Rasterizer.viewports[i];
-        viewports[i] = {d3dViewport.TopLeftX, d3dViewport.TopLeftY, d3dViewport.Width,
-                        d3dViewport.Height,   d3dViewport.MinDepth, d3dViewport.MaxDepth};
+        auto scale = hidpiViewportScale(d3dViewport);
+        viewports[i] = {d3dViewport.TopLeftX * scale, d3dViewport.TopLeftY * scale,
+                        d3dViewport.Width * scale, d3dViewport.Height * scale,
+                        d3dViewport.MinDepth, d3dViewport.MaxDepth};
       }
       EmitST([viewports = std::move(viewports)](ArgumentEncodingContext& enc) {
         auto &cmd = enc.encodeRenderCommand<wmtcmd_render_setviewports>();
@@ -4911,10 +4925,11 @@ public:
         if (allow_scissor) {
           if (i < state_.Rasterizer.NumScissorRects) {
             auto &d3d_rect = state_.Rasterizer.scissor_rects[i];
-            LONG left = std::clamp(d3d_rect.left, (LONG)0, (LONG)render_target_width);
-            LONG top = std::clamp(d3d_rect.top, (LONG)0, (LONG)render_target_height);
-            LONG right = std::clamp(d3d_rect.right, left, (LONG)render_target_width);
-            LONG bottom = std::clamp(d3d_rect.bottom, top, (LONG)render_target_height);
+            auto scale = hidpiViewportScale(state_.Rasterizer.viewports[i]);
+            LONG left = std::clamp((LONG)(d3d_rect.left * scale), (LONG)0, (LONG)render_target_width);
+            LONG top = std::clamp((LONG)(d3d_rect.top * scale), (LONG)0, (LONG)render_target_height);
+            LONG right = std::clamp((LONG)(d3d_rect.right * scale), left, (LONG)render_target_width);
+            LONG bottom = std::clamp((LONG)(d3d_rect.bottom * scale), top, (LONG)render_target_height);
             scissors[i] = {uint32_t(left), uint32_t(top), uint32_t(right - left), uint32_t(bottom - top)};
           } else {
             scissors[i] = {0, 0, 0, 0};
@@ -5130,11 +5145,40 @@ public:
 
 #pragma endregion
 
+  bool
+  isHidpiSwapchainBackbuffer() const {
+    return state_.OutputMerger.NumRTVs != 0 && state_.OutputMerger.RTVs[0] &&
+           state_.OutputMerger.RTVs[0]->resource_->hidpi_backing_resource_;
+  }
+
+  float
+  hidpiViewportScale(const D3D11_VIEWPORT &viewport) const {
+    if (!hidpi_native_resolution_ || !isHidpiSwapchainBackbuffer() ||
+        viewport.Width <= 0 || viewport.Height <= 0)
+      return 1.0f;
+
+    const auto viewport_width = static_cast<UINT>(viewport.Width);
+    const auto viewport_height = static_cast<UINT>(viewport.Height);
+    if (viewport.Width != viewport_width || viewport.Height != viewport_height ||
+        viewport_width == 0 || viewport_height == 0)
+      return 1.0f;
+
+    // Wine presents Retina windows in logical points. The opt-in swapchain
+    // backing resource is exactly 2x those dimensions; expand only a
+    // full-size logical viewport into that backing resource.
+    if (state_.OutputMerger.RenderTargetWidth == viewport_width * 2 &&
+        state_.OutputMerger.RenderTargetHeight == viewport_height * 2)
+      return 2.0f;
+
+    return 1.0f;
+  }
+
 protected:
   D3D11ContextState state_;
   D3D11UserDefinedAnnotation annotation_;
   MTLD3D11ContextExt<ContextInternalState> ext_;
   uint64_t max_object_threadgroups_;
+  bool hidpi_native_resolution_ = false;
 
 public:
   MTLD3D11DeviceContextImplBase(MTLD3D11Device *pDevice, ContextInternalState &ctx_state, ContextInternalState::device_mutex_t &mutex) :
@@ -5156,6 +5200,7 @@ public:
     default_depth_stencil_state->Release();
 
     max_object_threadgroups_ = m_parent->GetDXMTDevice().maxObjectThreadgroups();
+    hidpi_native_resolution_ = Config::getInstance().getOption<bool>("d3d11.hidpiNativeResolution", false);
   }
 };
 

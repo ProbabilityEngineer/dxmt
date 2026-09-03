@@ -2079,6 +2079,7 @@ Instruction readInstruction(
     return InstInterpolateSample {
       .dst = readDstOperand(Inst.m_Operands[0], phase, OperandDataType::Float),
       .sample_index = readSrcOperand(Inst.m_Operands[2], phase, OperandDataType::Integer),
+      .sample_index_is_input = Inst.m_Operands[2].m_Type == microsoft::D3D10_SB_OPERAND_TYPE_INPUT,
       .regid = regid,
       .read_swizzle = readSrcOperandSwizzle(Inst.m_Operands[1])
     };

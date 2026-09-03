@@ -142,6 +142,12 @@ public:
       scale_factor = std::max(Config::getInstance().getOption<float>("d3d11.metalSpatialUpscaleFactor", 2), 1.0f);
     }
 
+    if (Config::getInstance().getOption<bool>("d3d11.hidpiNativeResolution", false)) {
+      WMTLayerProps initial_layer_props;
+      layer_weak_.getProps(initial_layer_props);
+      hidpi_scale_factor = std::max(initial_layer_props.contents_scale, 1.0);
+    }
+
     presenter = Rc(new Presenter(pDevice->GetMTLDevice(), layer_weak_,
                                  pDevice->GetDXMTDevice().queue().cmd_library,
                                  scale_factor, desc_.SampleDesc.Count));
@@ -305,8 +311,8 @@ public:
     std::unique_lock<dxmt::mutex> lock(mutex_);
 
     DXGI_MODE_DESC1 preferred_display_mode = {
-        desc_.Width,
-        desc_.Height,
+        backbuffer_desc_.Width,
+        backbuffer_desc_.Height,
         fullscreen_desc_.RefreshRate,
         desc_.Format,
         DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED,
@@ -483,6 +489,9 @@ public:
       desc_.Width = Width;
       desc_.Height = Height;
     }
+    setHidpiSwapchainBackingSize(
+        desc_.Width, desc_.Height, static_cast<uint32_t>(hidpi_scale_factor)
+    );
     if (Format != DXGI_FORMAT_UNKNOWN) {
       if (ConvertSwapChainFormat(Format) != WMTPixelFormatInvalid)
         desc_.Format = Format;
@@ -493,8 +502,8 @@ public:
       backbuffer_desc_.Width = 1;
       backbuffer_desc_.Height = 1;
     } else {
-      backbuffer_desc_.Width = desc_.Width;
-      backbuffer_desc_.Height = desc_.Height;
+      backbuffer_desc_.Width = desc_.Width * hidpi_scale_factor;
+      backbuffer_desc_.Height = desc_.Height * hidpi_scale_factor;
     }
 
     ApplyLayerProps();
@@ -509,6 +518,7 @@ public:
     // CreateDeviceTexture2D returns public reference, change to private one here
     backbuffer_->AddRefPrivate();
     backbuffer_->Release();
+    backbuffer_->hidpi_backing_resource_ = hidpi_scale_factor > 1.0;
 
     if constexpr (EnableMetalFX) {
       D3D11_TEXTURE2D_DESC1 upscaled_desc_ = backbuffer_desc_;
@@ -521,10 +531,10 @@ public:
         return E_FAIL;
 
       WMTFXSpatialScalerInfo info;
-      info.input_height = desc_.Height;
-      info.input_width = desc_.Width;
-      info.output_height = desc_.Height * scale_factor;
-      info.output_width = desc_.Width * scale_factor;
+      info.input_height = backbuffer_desc_.Height;
+      info.input_width = backbuffer_desc_.Width;
+      info.output_height = backbuffer_desc_.Height * scale_factor;
+      info.output_width = backbuffer_desc_.Width * scale_factor;
       info.color_format = backbuffer_->texture()->pixelFormat();
       info.output_format =upscaled_backbuffer_->texture()->pixelFormat();
       metalfx_scaler = new SpatialScaler(device_->GetMTLDevice(), info);
@@ -580,8 +590,8 @@ public:
                               : colorspace_,
                           LayerSupportEDR());
     if (presenter->changeLayerProperties(
-            ConvertSwapChainFormat(desc_.Format), target_color_space, desc_.Width * scale_factor,
-            desc_.Height * scale_factor, desc_.SampleDesc.Count
+            ConvertSwapChainFormat(desc_.Format), target_color_space, backbuffer_desc_.Width * scale_factor,
+            backbuffer_desc_.Height * scale_factor, desc_.SampleDesc.Count
         ))
       device_context_->WaitUntilGPUIdle();
   };
@@ -1083,6 +1093,7 @@ private:
   std::conditional<EnableMetalFX, Rc<SpatialScaler>, std::monostate>::type metalfx_scaler;
   std::conditional<EnableMetalFX, Com<D3D11ResourceCommon>, std::monostate>::type upscaled_backbuffer_;
   float scale_factor = 1.0;
+  double hidpi_scale_factor = 1.0;
 };
 
 HRESULT

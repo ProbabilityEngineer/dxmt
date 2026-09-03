@@ -74,8 +74,12 @@ public:
       SM50_COMPILED_BITCODE bitcode;
       sm50_bitcode_t compile_result = proc(func_name.c_str(), &sm50_common);
 
-      if (!compile_result)
+      if (!compile_result) {
+        ERR("Failed to produce shader bitcode for MTLFunction: ", func_name,
+            " (shader SHA-1: ", shader_->sha1().string(), ")");
+        shader_->dump();
         return this;
+      }
 
       SM50GetCompiledBitcode(compile_result, &bitcode);
       lib_data = WMT::MakeDispatchData(bitcode.Data, bitcode.Size);
@@ -93,7 +97,8 @@ public:
       function_ = library.newFunction(func_name.c_str());
 
       if (function_ == nullptr) {
-        ERR("Failed to create MTLFunction: ", func_name);
+        ERR("Failed to create MTLFunction: ", func_name,
+            " (shader SHA-1: ", shader_->sha1().string(), ")");
         shader_->dump();
       }
     }

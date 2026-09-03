@@ -126,23 +126,19 @@ class PipelineCache : public MTLD3D11PipelineCacheBase {
     }
     virtual const Sha1Digest &sha1() { return sha1_; };
 
-#ifdef DXMT_DEBUG
-    void *bytecode;
-    size_t bytecode_length;
+    void *bytecode = nullptr;
+    size_t bytecode_length = 0;
 
     virtual void dump() {
+      const char *dir = "/private/tmp/dxmt-elite";
       std::fstream dump_out;
-      dump_out.open("shader_dump_" + sha1_.string() + ".cso",
+      dump_out.open(std::string(dir) + "/shader_dump_" + sha1_.string() + ".cso",
                     std::ios::out | std::ios::binary);
-      if (dump_out) {
+      if (dump_out && bytecode && bytecode_length)
         dump_out.write((char *)bytecode, bytecode_length);
-      }
       dump_out.close();
-      WARN("shader dumped to ./shader_dump_" + sha1_.string() + ".cso");
+      WARN("shader dumped to ", dir, "/shader_dump_", sha1_.string(), ".cso");
     }
-#else
-    virtual void dump() {}
-#endif
 
     virtual WMT::Reference<WMT::DispatchData> find_cached_variant(Sha1Digest &variant_digest) final {
       auto reader = cache->scache_.getReader();
@@ -242,11 +238,9 @@ class PipelineCache : public MTLD3D11PipelineCacheBase {
       if (result != shaders_.end()) {
         return shaders_.at(sha1).get();
       }
-#ifdef DXMT_DEBUG
       shader->bytecode = malloc(BytecodeLength);
       shader->bytecode_length = BytecodeLength;
       memcpy(shader->bytecode, pBytecode, BytecodeLength);
-#endif
       return shaders_.emplace(sha1, std::move(shader)).first->second.get();
     }
   }

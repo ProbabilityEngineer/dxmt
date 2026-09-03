@@ -24,11 +24,26 @@
 #include "llvm/IR/Type.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/raw_ostream.h"
 #include <stack>
 
 char dxmt::UnsupportedFeature::ID;
 
 namespace dxmt::dxbc {
+
+static llvm::ArrayType *debug_array_pointee(llvm::Value *value, llvm::StringRef where) {
+  auto *pointer = llvm::dyn_cast<llvm::PointerType>(value->getType());
+  auto *array = pointer && !pointer->isOpaque()
+      ? llvm::dyn_cast<llvm::ArrayType>(pointer->getNonOpaquePointerElementType())
+      : nullptr;
+  if (!array) {
+    llvm::errs() << "DXMT array-type diagnostic at " << where << ": value type=";
+    value->getType()->print(llvm::errs());
+    llvm::errs() << "\n";
+    llvm::report_fatal_error("DXMT expected an array pointer; see diagnostic above");
+  }
+  return array;
+}
 
 template <typename T = std::monostate>
 ReaderIO<context, T> throwUnsupported(llvm::StringRef ref) {
@@ -132,15 +147,12 @@ auto to_desired_type_from_int_vec4(pvalue vec4, llvm::Type *desired, uint32_t ma
 
 auto load_from_array_at(llvm::Value *array, pvalue index) -> IRValue {
   return make_irvalue([=](context ctx) {
-    auto array_ty = llvm::cast<llvm::ArrayType>( // force line break
-      llvm::cast<llvm::PointerType>(array->getType())
-        ->getNonOpaquePointerElementType()
-    );
+    auto array_ty = debug_array_pointee(array, "load_from_array_at");
     auto ptr = ctx.builder.CreateGEP(
       array_ty, array, {ctx.builder.getInt32(0), index}, "",
       llvm::isa<llvm::ConstantInt>(index)
     );
-    return ctx.builder.CreateLoad(array_ty->getElementType(), ptr);
+    return SafeCreateLoad(ctx.builder, array_ty->getElementType(), ptr);
   });
 };
 
@@ -150,8 +162,8 @@ load_from_vec4_array_masked(llvm::Value *array, pvalue index, uint32_t mask) {
     return load_from_array_at(array, index);
   }
   return make_irvalue([=](context ctx) {
-    auto array_type = llvm::cast<llvm::PointerType>(array->getType())->getNonOpaquePointerElementType();
-    auto vec4_type = llvm::cast<llvm::ArrayType>(array_type)->getArrayElementType();
+    auto array_type = debug_array_pointee(array, "load_from_vec4_array_masked");
+    auto vec4_type = array_type->getArrayElementType();
     auto ele_type = llvm::cast<llvm::VectorType>(vec4_type)->getElementType();
     pvalue value = llvm::ConstantAggregateZero::get(vec4_type);
     for (unsigned i = 0; i < 4; i++) {
@@ -159,7 +171,7 @@ load_from_vec4_array_masked(llvm::Value *array, pvalue index, uint32_t mask) {
         continue;
       auto component_ptr =
           ctx.builder.CreateGEP(array_type, array, {ctx.builder.getInt32(0), index, ctx.builder.getInt32(i)});
-      value = ctx.builder.CreateInsertElement(value, ctx.builder.CreateLoad(ele_type, component_ptr), uint64_t(i));
+      value = ctx.builder.CreateInsertElement(value, SafeCreateLoad(ctx.builder, ele_type, component_ptr), uint64_t(i));
     }
     return value;
   });
@@ -170,8 +182,7 @@ auto store_to_array_at(
 ) -> IREffect {
   return make_effect([=](context ctx) {
     auto ptr = ctx.builder.CreateInBoundsGEP(
-      llvm::cast<llvm::PointerType>(array->getType())
-        ->getNonOpaquePointerElementType(),
+      debug_array_pointee(array, "store_to_array_at"),
       array, {ctx.builder.getInt32(0), index}
     );
     ctx.builder.CreateStore(vec4_type_matched, ptr);
@@ -191,8 +202,7 @@ IREffect store_at_vec4_array_masked(
         if ((mask & (1 << i)) == 0)
           continue;
         auto component_ptr =  ctx.builder.CreateGEP(
-          llvm::cast<llvm::PointerType>(array->getType())
-            ->getNonOpaquePointerElementType(),
+          debug_array_pointee(array, "store_at_vec4_array_masked"),
           array, {ctx.builder.getInt32(0), index, ctx.builder.getInt32(i)}
         );
         ctx.builder.CreateStore(
@@ -419,13 +429,10 @@ IREffect pull_vertex_input(
     unsigned int vertex_buffer_entry_index =
       element_info.slot ? __builtin_popcount((slot_mask << shift) >> shift) : 0;
     auto vertex_buffer_table = ctx.resource.vertex_buffer_table;
-    auto vertex_buffer_entry = builder.CreateLoad(
-      types._dxmt_vertex_buffer_entry,
-      builder.CreateConstGEP1_32(
-        types._dxmt_vertex_buffer_entry, vertex_buffer_table,
-        vertex_buffer_entry_index
-      )
-    );
+    auto vertex_buffer_entry = SafeCreateLoad(builder, types._dxmt_vertex_buffer_entry, builder.CreateConstGEP1_32(
+      types._dxmt_vertex_buffer_entry, vertex_buffer_table,
+      vertex_buffer_entry_index
+    ));
     auto base_addr = builder.CreateExtractValue(vertex_buffer_entry, {0});
     auto stride = builder.CreateExtractValue(vertex_buffer_entry, {1});
     auto byte_offset = builder.CreateAdd(
@@ -598,7 +605,7 @@ llvm::Expected<llvm::BasicBlock *> convert_basicblocks(
               }
               assert(src->getType()->getNonOpaquePointerElementType() == ctx.resource.hull_cp_passthrough_type);
               builder.CreateStore(
-                  builder.CreateLoad(ctx.resource.hull_cp_passthrough_type, src), ctx.resource.hull_cp_passthrough_dst
+                  SafeCreateLoad(builder, ctx.resource.hull_cp_passthrough_type, src), ctx.resource.hull_cp_passthrough_dst
               );
 
               builder.CreateBr(sync);

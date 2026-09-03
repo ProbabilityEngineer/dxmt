@@ -8,6 +8,12 @@
 #include "wsi_window.hpp"
 #include "Metal.hpp"
 
+#if defined(__arm64ec__) && __has_attribute(hybrid_patchable)
+#define DXMT_HYBRID_PATCHABLE __attribute__((hybrid_patchable))
+#else
+#define DXMT_HYBRID_PATCHABLE
+#endif
+
 namespace dxmt {
 
 Com<IMTLDXGIAdapter> CreateAdapter(WMT::Device Device,
@@ -64,7 +70,9 @@ public:
     return DXGI_ERROR_UNSUPPORTED;
   }
 
-  HRESULT STDMETHODCALLTYPE
+  // x64 overlays patch these vtable targets in place. On ARM64EC, expose an
+  // x64 fast-forward sequence so they do not write x64 code over native code.
+  DXMT_HYBRID_PATCHABLE HRESULT STDMETHODCALLTYPE
   CreateSwapChain(IUnknown *pDevice, DXGI_SWAP_CHAIN_DESC *pDesc,
                   IDXGISwapChain **ppSwapChain) final {
     if (ppSwapChain == nullptr || pDesc == nullptr || pDevice == nullptr)
@@ -97,7 +105,7 @@ public:
     return hr;
   }
 
-  HRESULT STDMETHODCALLTYPE CreateSwapChainForHwnd(
+  DXMT_HYBRID_PATCHABLE HRESULT STDMETHODCALLTYPE CreateSwapChainForHwnd(
       IUnknown *pDevice, HWND hWnd, const DXGI_SWAP_CHAIN_DESC1 *pDesc,
       const DXGI_SWAP_CHAIN_FULLSCREEN_DESC *pFullscreenDesc,
       IDXGIOutput *pRestrictToOutput, IDXGISwapChain1 **ppSwapChain) final {
@@ -135,7 +143,7 @@ public:
                                               ppSwapChain);
   }
 
-  HRESULT STDMETHODCALLTYPE CreateSwapChainForCoreWindow(
+  DXMT_HYBRID_PATCHABLE HRESULT STDMETHODCALLTYPE CreateSwapChainForCoreWindow(
       IUnknown *pDevice, IUnknown *pWindow, const DXGI_SWAP_CHAIN_DESC1 *pDesc,
       IDXGIOutput *pRestrictToOutput, IDXGISwapChain1 **ppSwapChain) final {
     InitReturnPtr(ppSwapChain);
@@ -144,7 +152,7 @@ public:
     return E_NOTIMPL;
   }
 
-  HRESULT STDMETHODCALLTYPE CreateSwapChainForComposition(
+  DXMT_HYBRID_PATCHABLE HRESULT STDMETHODCALLTYPE CreateSwapChainForComposition(
       IUnknown *pDevice, const DXGI_SWAP_CHAIN_DESC1 *pDesc,
       IDXGIOutput *pRestrictToOutput, IDXGISwapChain1 **ppSwapChain) final {
     InitReturnPtr(ppSwapChain);

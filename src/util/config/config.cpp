@@ -60,6 +60,10 @@ namespace dxmt {
     { R"(\\SotTR\.exe$)", {{
       { "d3d11.defuseFma",   "True" },
     }} },
+    /** Elite Dangerous */
+    { R"(\\EliteDangerous64\.exe$)", {{
+      { "d3d11.sampleNaNToZero",   "True" },
+    }} },
     /** Helldivers 2 */
     { R"(\\helldivers2\.exe$)", {{
       { "d3d11.maxFeatureLevel",   "12_1" },

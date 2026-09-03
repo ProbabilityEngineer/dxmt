@@ -21,6 +21,7 @@
 #include "dxmt_format.hpp"
 #include "ftl.hpp"
 #include "d3d11_resource.hpp"
+#include "d3d11_telemetry.hpp"
 #include "dxgi_object.hpp"
 #include <memory>
 #include "d3d11_4.h"
@@ -914,7 +915,15 @@ public:
     if (!ppSRView)
       return S_FALSE;
 
-    return static_cast<D3D11ResourceCommon *>(pResource)->CreateShaderResourceView(pDesc, ppSRView);
+    auto *resource = static_cast<D3D11ResourceCommon *>(pResource);
+    HRESULT result = resource->CreateShaderResourceView(pDesc, ppSRView);
+    if (SUCCEEDED(result) && *ppSRView && resource->texture() &&
+        DepthStencilPlanarFlags(resource->texture()->pixelFormat())) {
+      eliteTelemetry("depth-srv-view resource=0x", std::hex,
+                     reinterpret_cast<uintptr_t>(resource->texture().ptr()),
+                     " view=0x", reinterpret_cast<uintptr_t>(*ppSRView), std::dec);
+    }
+    return result;
   }
 
   HRESULT STDMETHODCALLTYPE CreateUnorderedAccessView1(

@@ -8,7 +8,8 @@
 
 namespace dxmt {
 
-Presenter::Presenter(WMT::Device device, WMT::MetalLayer layer, InternalCommandLibrary &lib, float scale_factor, uint8_t sample_count) :
+Presenter::Presenter(WMT::Device device, WMT::MetalLayer layer, InternalCommandLibrary &lib, float scale_factor,
+                     uint8_t sample_count) :
     device_(device),
     layer_(layer),
     lib_(lib),

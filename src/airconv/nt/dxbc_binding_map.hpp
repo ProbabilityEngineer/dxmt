@@ -2,6 +2,7 @@
 
 #include "air_builder.hpp"
 #include "llvm/IR/Value.h"
+#include <optional>
 
 namespace dxmt::dxbc {
 
@@ -43,19 +44,19 @@ using RangeId = uint32_t;
 class BindingMap {
 public:
   virtual ~BindingMap() {};
-  virtual llvm::Optional<ConstantBufferDescriptor>
+  virtual std::optional<ConstantBufferDescriptor>
   GetConstantBuffer(llvm::air::AIRBuilder &Builder, RangeId Range, llvm::Value *Index) = 0;
-  virtual llvm::Optional<SamplerDescriptor>
+  virtual std::optional<SamplerDescriptor>
   GetSampler(llvm::air::AIRBuilder &Builder, RangeId Range, llvm::Value *Index) = 0;
-  virtual llvm::Optional<TextureDescirptor>
+  virtual std::optional<TextureDescirptor>
   GetSRVTexture(llvm::air::AIRBuilder &Builder, RangeId Range, llvm::Value *Index) = 0;
-  virtual llvm::Optional<TextureDescirptor>
+  virtual std::optional<TextureDescirptor>
   GetUAVTexture(llvm::air::AIRBuilder &Builder, RangeId Range, llvm::Value *Index) = 0;
-  virtual llvm::Optional<BufferDescriptor>
+  virtual std::optional<BufferDescriptor>
   GetSRVBuffer(llvm::air::AIRBuilder &Builder, RangeId Range, llvm::Value *Index) = 0;
-  virtual llvm::Optional<BufferDescriptor>
+  virtual std::optional<BufferDescriptor>
   GetUAVBuffer(llvm::air::AIRBuilder &Builder, RangeId Range, llvm::Value *Index) = 0;
-  virtual llvm::Optional<CounterDescriptor>
+  virtual std::optional<CounterDescriptor>
   GetUAVCounter(llvm::air::AIRBuilder &Builder, RangeId Range, llvm::Value *Index) = 0;
 };
 

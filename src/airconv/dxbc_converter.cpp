@@ -809,8 +809,8 @@ llvm::Error convert_dxbc_vertex_shader(
     unsigned clip_distance_idx = 0;
     for (auto &scalar : pShaderInternal->clip_distance_scalars) {
       auto src_ptr = builder.CreateGEP(
-        resource_map.output.ptr_float4->getType()
-          ->getNonOpaquePointerElementType(),
+                
+          llvm::VectorType::get(llvm::Type::getFloatTy(context), 4, false),
         resource_map.output.ptr_float4,
         {builder.getInt32(0), builder.getInt32(scalar.reg),
          builder.getInt32(scalar.component)}
@@ -829,8 +829,7 @@ llvm::Error convert_dxbc_vertex_shader(
   } else {
     if (rta_idx_out != ~0u) {
       auto src_ptr = builder.CreateGEP(
-        resource_map.output.ptr_int4->getType()->getNonOpaquePointerElementType(
-        ),
+        llvm::VectorType::get(llvm::Type::getInt32Ty(context), 4, false),
         resource_map.output.ptr_int4,
         {builder.getInt32(0),
          builder.getInt32(gs_passthrough->Data.RenderTargetArrayIndexReg),
@@ -842,8 +841,7 @@ llvm::Error convert_dxbc_vertex_shader(
     }
     if (va_idx_out != ~0u) {
       auto src_ptr = builder.CreateGEP(
-        resource_map.output.ptr_int4->getType()->getNonOpaquePointerElementType(
-        ),
+        llvm::VectorType::get(llvm::Type::getInt32Ty(context), 4, false),
         resource_map.output.ptr_int4,
         {builder.getInt32(0),
          builder.getInt32(gs_passthrough->Data.ViewportArrayIndexReg),
@@ -1360,8 +1358,9 @@ AIRCONV_API int SM50Compile(
 
   // pArgs is ignored for now
   LLVMContext context;
+    context.setOpaquePointers(false);
 
-  context.setOpaquePointers(false); // I suspect Metal uses LLVM 14...
+  // context.setOpaquePointers(false); // I suspect Metal uses LLVM 14...
 
   auto &shader_info = ((dxmt::dxbc::SM50ShaderInternal *)pShader)->shader_info;
 
@@ -1421,8 +1420,9 @@ AIRCONV_API int SM50CompileTessellationPipelineHull(
 
   // pArgs is ignored for now
   LLVMContext context;
+    context.setOpaquePointers(false);
 
-  context.setOpaquePointers(false); // I suspect Metal uses LLVM 14...
+  // context.setOpaquePointers(false); // I suspect Metal uses LLVM 14...
 
   auto &shader_info =
     ((dxmt::dxbc::SM50ShaderInternal *)pHullShader)->shader_info;
@@ -1485,8 +1485,9 @@ AIRCONV_API int SM50CompileTessellationPipelineDomain(
 
   // pArgs is ignored for now
   LLVMContext context;
+    context.setOpaquePointers(false);
 
-  context.setOpaquePointers(false); // I suspect Metal uses LLVM 14...
+  // context.setOpaquePointers(false); // I suspect Metal uses LLVM 14...
 
   auto &shader_info =
     ((dxmt::dxbc::SM50ShaderInternal *)pDomainShader)->shader_info;
@@ -1550,8 +1551,9 @@ AIRCONV_API int SM50CompileGeometryPipelineVertex(
 
   // pArgs is ignored for now
   LLVMContext context;
+    context.setOpaquePointers(false);
 
-  context.setOpaquePointers(false); // I suspect Metal uses LLVM 14...
+  // context.setOpaquePointers(false); // I suspect Metal uses LLVM 14...
 
   auto &shader_info = ((dxmt::dxbc::SM50ShaderInternal *)pGeometryShader)->shader_info;
 
@@ -1613,8 +1615,9 @@ AIRCONV_API int SM50CompileGeometryPipelineGeometry(
 
   // pArgs is ignored for now
   LLVMContext context;
+    context.setOpaquePointers(false);
 
-  context.setOpaquePointers(false); // I suspect Metal uses LLVM 14...
+  // context.setOpaquePointers(false); // I suspect Metal uses LLVM 14...
 
   auto &shader_info =
     ((dxmt::dxbc::SM50ShaderInternal *)pGeometryShader)->shader_info;
