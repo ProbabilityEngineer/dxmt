@@ -26,6 +26,7 @@
 #include "dxmt_texture.hpp"
 #include "d3d11_resource.hpp"
 #include "util_win32_compat.h"
+#include "d3d11_telemetry.hpp"
 
 namespace dxmt {
 
@@ -194,6 +195,10 @@ public:
       return S_FALSE;
     }
     *ppView = ref(new TextureRTV(descriptor, descriptor.format, &finalDesc, this, this->m_parent, attachment_desc));
+    eliteTelemetry("view kind=rtv id=", eliteTelemetryObjectId(*ppView),
+                   " resource=", eliteTelemetryObjectId(this), " tex=", eliteTelemetryObjectId(this->texture_.ptr()),
+                   " width=", attachment_desc.Width, " height=", attachment_desc.Height,
+                   " samples=", attachment_desc.SampleCount, " format=", uint32_t(descriptor.format));
     return S_OK;
   };
 
@@ -222,6 +227,10 @@ public:
       return S_FALSE;
     }
     *ppView = ref(new TextureDSV(descriptor, descriptor.format, &finalDesc, this, this->m_parent, attachment_desc));
+    eliteTelemetry("view kind=dsv id=", eliteTelemetryObjectId(*ppView),
+                   " resource=", eliteTelemetryObjectId(this), " tex=", eliteTelemetryObjectId(this->texture_.ptr()),
+                   " width=", attachment_desc.Width, " height=", attachment_desc.Height,
+                   " samples=", attachment_desc.SampleCount, " format=", uint32_t(descriptor.format));
     return S_OK;
   };
 
@@ -252,6 +261,8 @@ public:
       return S_FALSE;
     }
     *ppView = ref(new TextureSRV(descriptor, &finalDesc, this, this->m_parent));
+    eliteTelemetry("view kind=srv id=", eliteTelemetryObjectId(*ppView),
+                   " resource=", eliteTelemetryObjectId(this), " tex=", eliteTelemetryObjectId(this->texture_.ptr()));
     return S_OK;
   };
 
@@ -281,6 +292,8 @@ public:
       return S_FALSE;
     }
     *ppView = ref(new TextureUAV(descriptor, &finalDesc, this, this->m_parent));
+    eliteTelemetry("view kind=uav id=", eliteTelemetryObjectId(*ppView),
+                   " resource=", eliteTelemetryObjectId(this), " tex=", eliteTelemetryObjectId(this->texture_.ptr()));
     return S_OK;
   };
 
@@ -492,6 +505,8 @@ CreateDeviceTexture2D(MTLD3D11Device *pDevice,
                       const D3D11_SUBRESOURCE_DATA *pInitialData,
                       ID3D11Texture2D1 **ppTexture) {
   auto desc = *pDesc;
+  const auto requested_width = desc.Width;
+  const auto requested_height = desc.Height;
   const auto logical_width = hidpi_swapchain_logical_width.load(std::memory_order_relaxed);
   const auto logical_height = hidpi_swapchain_logical_height.load(std::memory_order_relaxed);
   const auto scale = hidpi_swapchain_scale.load(std::memory_order_relaxed);
@@ -501,17 +516,23 @@ CreateDeviceTexture2D(MTLD3D11Device *pDevice,
       desc.Width == logical_width && desc.Height == logical_height;
 
   if (is_hidpi_companion) {
-    // The game creates full-window color/depth attachments from Wine's
-    // logical client size. Match the physical swapchain backing resource so
-    // Metal can encode the complete render pass instead of rejecting mixed
-    // logical/physical attachments.
     desc.Width *= scale;
     desc.Height *= scale;
   }
 
   auto hr = CreateDeviceTextureInternal<tag_texture_2d>(pDevice, &desc, pInitialData, ppTexture);
-  if (SUCCEEDED(hr) && ppTexture && *ppTexture && is_hidpi_companion)
-    GetResourceCommon(static_cast<ID3D11Resource *>(*ppTexture))->hidpi_backing_resource_ = true;
+  if (SUCCEEDED(hr) && ppTexture && *ppTexture) {
+    auto *resource = reinterpret_cast<D3D11ResourceCommon *>(*ppTexture);
+    eliteTelemetry("texture2d id=", eliteTelemetryObjectId(resource),
+                   " tex=", eliteTelemetryObjectId(resource->texture().ptr()),
+                   " requested=", requested_width, "x", requested_height,
+                   " allocated=", desc.Width, "x", desc.Height,
+                   " format=", uint32_t(desc.Format), " bind=0x", std::hex, desc.BindFlags, std::dec,
+                   " samples=", desc.SampleDesc.Count, " mips=", desc.MipLevels,
+                   " companion=", is_hidpi_companion);
+    if (is_hidpi_companion)
+      resource->hidpi_backing_resource_ = true;
+  }
   return hr;
 }
 

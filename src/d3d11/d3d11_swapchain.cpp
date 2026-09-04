@@ -23,6 +23,7 @@
 #include "dxmt_info.hpp"
 #include "dxmt_presenter.hpp"
 #include <atomic>
+#include "d3d11_telemetry.hpp"
 #include <cfloat>
 #include <format>
 
@@ -510,7 +511,6 @@ public:
 
     backbuffer_desc_.Format = desc_.Format;
 
-    backbuffer_ = nullptr;
     if (FAILED(dxmt::CreateDeviceTexture2D(
             device_, &backbuffer_desc_, nullptr, reinterpret_cast<ID3D11Texture2D1 **>(&backbuffer_)
         )))
@@ -519,6 +519,11 @@ public:
     backbuffer_->AddRefPrivate();
     backbuffer_->Release();
     backbuffer_->hidpi_backing_resource_ = hidpi_scale_factor > 1.0;
+    eliteTelemetry("swapchain-backbuffer resource=", eliteTelemetryObjectId(backbuffer_.ptr()),
+                   " tex=", eliteTelemetryObjectId(backbuffer_->texture().ptr()),
+                   " logical=", desc_.Width, "x", desc_.Height,
+                   " allocated=", backbuffer_desc_.Width, "x", backbuffer_desc_.Height,
+                   " scale=", hidpi_scale_factor, " format=", uint32_t(desc_.Format));
 
     if constexpr (EnableMetalFX) {
       D3D11_TEXTURE2D_DESC1 upscaled_desc_ = backbuffer_desc_;
@@ -739,11 +744,12 @@ public:
 
   HRESULT
   STDMETHODCALLTYPE
-  Present1(UINT SyncInterval, UINT PresentFlags,
-           const DXGI_PRESENT_PARAMETERS *pPresentParameters) final {
-    if (SyncInterval > 4)
-      return DXGI_ERROR_INVALID_CALL;
-
+  Present1(UINT SyncInterval, UINT PresentFlags, const DXGI_PRESENT_PARAMETERS *pPresentParameters) final {
+    eliteTelemetry("present swapchain=", eliteTelemetryObjectId(this),
+                   " backbuffer=", eliteTelemetryObjectId(backbuffer_.ptr()),
+                   " logical=", desc_.Width, "x", desc_.Height,
+                   " allocated=", backbuffer_desc_.Width, "x", backbuffer_desc_.Height,
+                   " sync=", SyncInterval, " flags=0x", std::hex, PresentFlags, std::dec);
     HRESULT hr = S_OK;
     bool window_minimized = wsi::isMinimized(hWnd);
     if ((window_minimized || desc_.Width == 0 || desc_.Height == 0)

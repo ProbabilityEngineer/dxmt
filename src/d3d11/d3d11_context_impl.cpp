@@ -663,17 +663,26 @@ public:
   void
   STDMETHODCALLTYPE
   ClearRenderTargetView(ID3D11RenderTargetView *pRenderTargetView, const FLOAT ColorRGBA[4]) override {
+    auto *rtv = static_cast<D3D11RenderTargetView *>(pRenderTargetView);
+    eliteTelemetry("clear-rtv view=", eliteTelemetryObjectId(rtv),
+                   " resource=", eliteTelemetryObjectId(rtv ? rtv->resource_.ptr() : nullptr),
+                   " tex=", eliteTelemetryObjectId(rtv ? rtv->texture().ptr() : nullptr),
+                   " color=", ColorRGBA[0], ",", ColorRGBA[1], ",", ColorRGBA[2], ",", ColorRGBA[3]);
     std::lock_guard<mutex_t> lock(mutex);
 
-    ClearRenderTargetView(static_cast<D3D11RenderTargetView *>(pRenderTargetView), ColorRGBA);
+    ClearRenderTargetView(rtv, ColorRGBA);
   }
 
   void
   STDMETHODCALLTYPE
   ClearUnorderedAccessViewUint(ID3D11UnorderedAccessView *pUnorderedAccessView, const UINT Values[4]) override {
+    auto *uav = static_cast<D3D11UnorderedAccessView *>(pUnorderedAccessView);
+    eliteTelemetry("clear-uav-uint view=", eliteTelemetryObjectId(uav),
+                   " resource=", eliteTelemetryObjectId(uav ? uav->resource_.ptr() : nullptr),
+                   " tex=", eliteTelemetryObjectId(uav ? uav->texture().ptr() : nullptr));
     std::lock_guard<mutex_t> lock(mutex);
 
-    ClearUnorderedAccessViewUint(static_cast<D3D11UnorderedAccessView *>(pUnorderedAccessView), Values);
+    ClearUnorderedAccessViewUint(uav, Values);
   }
 
   void
@@ -741,9 +750,13 @@ public:
   void
   STDMETHODCALLTYPE
   ClearUnorderedAccessViewFloat(ID3D11UnorderedAccessView *pUnorderedAccessView, const FLOAT Values[4]) override {
+    auto *uav = static_cast<D3D11UnorderedAccessView *>(pUnorderedAccessView);
+    eliteTelemetry("clear-uav-float view=", eliteTelemetryObjectId(uav),
+                   " resource=", eliteTelemetryObjectId(uav ? uav->resource_.ptr() : nullptr),
+                   " tex=", eliteTelemetryObjectId(uav ? uav->texture().ptr() : nullptr));
     std::lock_guard<mutex_t> lock(mutex);
 
-    ClearUnorderedAccessViewFloat(static_cast<D3D11UnorderedAccessView *>(pUnorderedAccessView), Values);
+    ClearUnorderedAccessViewFloat(uav, Values);
   }
 
   void
@@ -798,9 +811,15 @@ public:
   STDMETHODCALLTYPE
   ClearDepthStencilView(ID3D11DepthStencilView *pDepthStencilView, UINT ClearFlags, FLOAT Depth, UINT8 Stencil)
       override {
+    auto *dsv = static_cast<D3D11DepthStencilView *>(pDepthStencilView);
+    eliteTelemetry("clear-dsv view=", eliteTelemetryObjectId(dsv),
+                   " resource=", eliteTelemetryObjectId(dsv ? dsv->resource_.ptr() : nullptr),
+                   " tex=", eliteTelemetryObjectId(dsv ? dsv->texture().ptr() : nullptr),
+                   " flags=0x", std::hex, ClearFlags, std::dec,
+                   " depth=", Depth, " stencil=", uint32_t(Stencil));
     std::lock_guard<mutex_t> lock(mutex);
 
-    ClearDepthStencilView(static_cast<D3D11DepthStencilView*>(pDepthStencilView), ClearFlags, Depth, Stencil);
+    ClearDepthStencilView(dsv, ClearFlags, Depth, Stencil);
   }
 
   void
@@ -970,6 +989,9 @@ public:
       ID3D11Resource *pDstResource, UINT DstSubresource, ID3D11Resource *pSrcResource, UINT SrcSubresource,
       DXGI_FORMAT Format
   ) override {
+    eliteTelemetry("resolve dst=", eliteTelemetryObjectId(pDstResource), " src=", eliteTelemetryObjectId(pSrcResource),
+                   " dst_subresource=", DstSubresource, " src_subresource=", SrcSubresource,
+                   " format=", uint32_t(Format));
     std::lock_guard<mutex_t> lock(mutex);
 
     if (!pDstResource || !pSrcResource)
@@ -1032,6 +1054,7 @@ public:
   void
   STDMETHODCALLTYPE
   CopyResource(ID3D11Resource *pDstResource, ID3D11Resource *pSrcResource) override {
+    eliteTelemetry("copy dst=", eliteTelemetryObjectId(pDstResource), " src=", eliteTelemetryObjectId(pSrcResource));
     std::lock_guard<mutex_t> lock(mutex);
 
     if (!pDstResource || !pSrcResource || (pDstResource == pSrcResource))
@@ -2823,6 +2846,23 @@ public:
 
     if (!ValidateMultiOutput(NumRTVs, ppRenderTargetViews, NumUAVs, ppUnorderedAccessViews))
       return;
+    eliteTelemetry("om count=", NumRTVs, " dsv=", eliteTelemetryObjectId(pDepthStencilView), " uavs=", NumUAVs);
+    for (UINT i = 0; i < NumRTVs; i++) {
+      auto *rtv = ppRenderTargetViews && ppRenderTargetViews[i]
+                     ? static_cast<D3D11RenderTargetView *>(ppRenderTargetViews[i]) : nullptr;
+      eliteTelemetry("om-rtv slot=", i, " view=", eliteTelemetryObjectId(rtv),
+                     " resource=", eliteTelemetryObjectId(rtv ? rtv->resource_.ptr() : nullptr),
+                     " tex=", eliteTelemetryObjectId(rtv ? rtv->texture().ptr() : nullptr),
+                     " width=", rtv ? rtv->description().Width : 0,
+                     " height=", rtv ? rtv->description().Height : 0);
+    }
+    if (pDepthStencilView) {
+      auto *dsv = static_cast<D3D11DepthStencilView *>(pDepthStencilView);
+      eliteTelemetry("om-dsv view=", eliteTelemetryObjectId(dsv),
+                     " resource=", eliteTelemetryObjectId(dsv->resource_.ptr()),
+                     " tex=", eliteTelemetryObjectId(dsv->texture().ptr()),
+                     " width=", dsv->description().Width, " height=", dsv->description().Height);
+    }
 
     bool should_invalidate_pass = false;
 
@@ -3094,6 +3134,11 @@ public:
 
     if (NumViewports > 16)
       return;
+    eliteTelemetry("viewports count=", NumViewports);
+    for (UINT i = 0; i < NumViewports; i++)
+      eliteTelemetry("viewport index=", i, " x=", pViewports[i].TopLeftX, " y=", pViewports[i].TopLeftY,
+                     " width=", pViewports[i].Width, " height=", pViewports[i].Height,
+                     " min=", pViewports[i].MinDepth, " max=", pViewports[i].MaxDepth);
     if (state_.Rasterizer.NumViewports == NumViewports &&
         memcmp(state_.Rasterizer.viewports, pViewports, NumViewports * sizeof(D3D11_VIEWPORT)) == 0) {
       return;
@@ -3138,6 +3183,10 @@ public:
 
     if (NumRects > 16)
       return;
+    eliteTelemetry("scissors count=", NumRects);
+    for (UINT i = 0; i < NumRects; i++)
+      eliteTelemetry("scissor index=", i, " left=", pRects[i].left, " top=", pRects[i].top,
+                     " right=", pRects[i].right, " bottom=", pRects[i].bottom);
     if (state_.Rasterizer.NumScissorRects == NumRects &&
         memcmp(state_.Rasterizer.scissor_rects, pRects, NumRects * sizeof(D3D11_RECT)) == 0) {
       return;
@@ -3572,14 +3621,11 @@ public:
     auto &ShaderStage = state_.ShaderStages[Stage];
     for (unsigned slot = StartSlot; slot < StartSlot + NumViews; slot++) {
       auto pView = static_cast<D3D11ShaderResourceView *>(ppShaderResourceViews[slot - StartSlot]);
-      if (pView && pView->texture() &&
-          DepthStencilPlanarFlags(pView->texture()->pixelFormat())) {
-        eliteTelemetry("depth-srv-bind stage=", uint32_t(Stage),
-                       " slot=", slot, " resource=0x", std::hex,
-                       reinterpret_cast<uintptr_t>(pView->texture().ptr()),
-                       " view=0x", reinterpret_cast<uintptr_t>(pView), std::dec,
-                       " view_id=", pView->viewId());
-      }
+      eliteTelemetry("srv-bind stage=", uint32_t(Stage), " slot=", slot,
+                     " view=", eliteTelemetryObjectId(pView),
+                     " resource=", eliteTelemetryObjectId(pView ? pView->resource_.ptr() : nullptr),
+                     " texture=", eliteTelemetryObjectId(pView ? pView->texture().ptr() : nullptr),
+                     " view_id=", pView ? pView->viewId() : 0);
       if (pView && ValidateSRVHazard<Stage>(pView)) {
         bool replaced = false;
         auto &entry = ShaderStage.SRVs.bind(slot, {pView}, replaced, !pView->hazardsFree());
@@ -4369,6 +4415,9 @@ public:
 
   void
   ClearRenderTargetView(D3D11RenderTargetView *pRenderTargetView, const FLOAT ColorRGBA[4]) {
+    eliteTelemetry("clear-rtv-encoded view=", eliteTelemetryObjectId(pRenderTargetView),
+                   " resource=", eliteTelemetryObjectId(pRenderTargetView ? pRenderTargetView->resource_.ptr() : nullptr),
+                   " tex=", eliteTelemetryObjectId(pRenderTargetView ? pRenderTargetView->texture().ptr() : nullptr));
     InvalidateCurrentPass();
     auto clear_color = WMTClearColor{ColorRGBA[0], ColorRGBA[1], ColorRGBA[2], ColorRGBA[3]};
     auto &props = pRenderTargetView->description();
@@ -4381,6 +4430,9 @@ public:
 
   void
   ClearDepthStencilView(D3D11DepthStencilView *pDepthStencilView, UINT ClearFlags, FLOAT Depth, UINT8 Stencil) {
+    eliteTelemetry("clear-dsv-encoded view=", eliteTelemetryObjectId(pDepthStencilView),
+                   " resource=", eliteTelemetryObjectId(pDepthStencilView ? pDepthStencilView->resource_.ptr() : nullptr),
+                   " tex=", eliteTelemetryObjectId(pDepthStencilView ? pDepthStencilView->texture().ptr() : nullptr));
     if (ClearFlags == 0)
       return;
     InvalidateCurrentPass();
