@@ -20,3 +20,8 @@ prefixes
 .turnlog/
 
 AGENTS.md
+
+# CLU shareable configuration and workflow templates remain tracked.
+# CLU local runtime state.
+.clu/*.sqlite*
+.clu/backups/
