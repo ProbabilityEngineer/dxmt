@@ -18,8 +18,7 @@ ref.sh
 releases
 prefixes
 .turnlog/
-
-AGENTS.md
+.pi/
 
 # CLU shareable configuration and workflow templates remain tracked.
 # CLU local runtime state.
