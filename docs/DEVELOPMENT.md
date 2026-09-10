@@ -2,6 +2,8 @@
 
 [Our CI](/.github/workflows/ci.yml) is the best reference.
 
+For the current D3D11 implementation status, see the [D3D11 completeness matrix](D3D11_COMPLETENESS.md).
+
 ## Prerequisites:
 - MacOS Sonoma and later. <sub>It doesn't make a lot of sense to build a project targeting Apple platforms from Windows, Linux or other OSs.</sub>
 - Meson 1.3+, it's the build system used by this project
