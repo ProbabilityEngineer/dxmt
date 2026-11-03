@@ -66,6 +66,11 @@ void DeferredContextBase::UseCopySource(Rc<StagingResource> &staging) {
 }
 
 template <>
+void DeferredContextBase::UseTexture(Texture *texture) {
+  ctx_state.current_cmdlist->used_textures.push_back(texture);
+}
+
+template <>
 std::pair<BufferAllocation *, uint32_t>
 DeferredContextBase::GetDynamicBufferAllocation(Rc<DynamicBuffer> &dynamic) {
   D3D11_ASSERT(

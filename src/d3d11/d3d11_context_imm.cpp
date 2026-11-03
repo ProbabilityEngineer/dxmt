@@ -7,6 +7,7 @@
 #include "d3d11_context_impl.cpp"
 #include "dxmt_context.hpp"
 #include "dxmt_staging.hpp"
+#include "util_env.hpp"
 
 namespace dxmt {
 struct ContextInternalState {
@@ -71,6 +72,13 @@ ImmediateContextBase::GetDynamicBufferAllocation(Rc<DynamicBuffer> &dynamic) {
   return {dynamic->immediateName().ptr(), dynamic->immediateSuballocation()};
 }
 
+template <>
+void
+ImmediateContextBase::UseTexture(Texture *texture) {
+  if (texture->pending_clears)
+    ApplyPendingClearsOf(texture);
+}
+
 class MTLD3D11ImmediateContext : public ImmediateContextBase {
 public:
   MTLD3D11ImmediateContext(MTLD3D11Device *pDevice, CommandQueue &cmd_queue) :
@@ -79,6 +87,8 @@ public:
       ctx_state({cmd_queue}),
       d3dmt_(this, mutex) {
         ignore_map_flag_no_wait_ = Config::getInstance().getOption<bool>("d3d11.ignoreMapFlagNoWait", false);
+        defer_clears_ = Config::getInstance().getOption<bool>("d3d11.deferClears", true) &&
+                        env::getEnvVar("DXMT_DEFER_CLEARS") != "0";
       }
 
   HRESULT
@@ -142,6 +152,7 @@ public:
 
     if (unlikely(!pResource))
       return E_INVALIDARG;
+    UseResource(pResource);
     UINT buffer_length = 0, &row_pitch = buffer_length;
     UINT bind_flag = 0, &depth_pitch = bind_flag;
     auto current_seq_id = cmd_queue.CurrentSeqId();
@@ -518,9 +529,13 @@ public:
   ExecuteCommandList(ID3D11CommandList *pCommandList, BOOL RestoreContextState) override {
     std::lock_guard<d3d11_device_mutex> lock(mutex);
 
+    Com<MTLD3D11CommandList, false> cmdlist = static_cast<MTLD3D11CommandList *>(pCommandList);
+    // What the list will use: its pending clears go first, as if it had been recorded here.
+    for (auto &texture : cmdlist->used_textures)
+      UseTexture(texture.ptr());
+
     ResetEncodingContextState();
 
-    Com<MTLD3D11CommandList, false> cmdlist = static_cast<MTLD3D11CommandList *>(pCommandList);
     auto seq_id = ctx_state.cmd_queue.CurrentSeqId();
 
     promote_flush = cmdlist->promote_flush;
@@ -644,6 +659,7 @@ public:
 
     std::lock_guard<d3d11_device_mutex> lock(mutex);
 
+    ApplyAllPendingClears();
     ResetEncodingContextState();
 
     if (!state_object_)

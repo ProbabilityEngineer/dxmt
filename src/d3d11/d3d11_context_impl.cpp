@@ -700,6 +700,7 @@ public:
   void
   STDMETHODCALLTYPE
   ClearUnorderedAccessViewUint(D3D11UnorderedAccessView *pUAV, const UINT Values[4]) {
+    UseView(pUAV);
     InvalidateCurrentPass(true);
     SwitchToComputeEncoder();
     D3D11_UNORDERED_ACCESS_VIEW_DESC desc;
@@ -770,6 +771,7 @@ public:
   void
   STDMETHODCALLTYPE
   ClearUnorderedAccessViewFloat(D3D11UnorderedAccessView *pUAV, const FLOAT Values[4])  {
+    UseView(pUAV);
     InvalidateCurrentPass(true);
     SwitchToComputeEncoder();
     D3D11_UNORDERED_ACCESS_VIEW_DESC desc;
@@ -833,6 +835,13 @@ public:
       return;
     if (!pView)
       return;
+    {
+      ID3D11Resource *resource = nullptr;
+      pView->GetResource(&resource);
+      UseResource(resource);
+      if (resource)
+        resource->Release();
+    }
 
     auto color = std::array<float, 4>({Color[0], Color[1], Color[2], Color[3]});
 
@@ -966,6 +975,7 @@ public:
       if (desc.ViewDimension == D3D11_SRV_DIMENSION_BUFFER || desc.ViewDimension == D3D11_SRV_DIMENSION_BUFFEREX) {
         return;
       }
+      UseView(srv);
       SwitchToBlitEncoder(CommandBufferState::BlitEncoderActive);
       EmitOP([tex = srv->texture(), viewId = srv->viewId()](ArgumentEncodingContext &enc) {
         // workaround: mipmap generation of a8unorm is borked, so use a r8unorm view
@@ -995,6 +1005,8 @@ public:
       return;
     if (pDstResource == pSrcResource && DstSubresource == SrcSubresource)
       return;
+    UseResource(pDstResource);
+    UseResource(pSrcResource);
 
     BlitObject Dst(device, pDstResource);
     if (Dst.Dimension != D3D11_RESOURCE_DIMENSION_TEXTURE2D)
@@ -1055,6 +1067,8 @@ public:
 
     if (!pDstResource || !pSrcResource || (pDstResource == pSrcResource))
       return;
+    UseResource(pDstResource);
+    UseResource(pSrcResource);
 
     BlitObject Dst(device, pDstResource);
     BlitObject Src(device, pSrcResource);
@@ -1116,6 +1130,8 @@ public:
       return;
     if (!pSrcResource)
       return;
+    UseResource(pDstResource);
+    UseResource(pSrcResource);
 
     BlitObject Dst(device, pDstResource);
     BlitObject Src(device, pSrcResource);
@@ -1201,6 +1217,7 @@ public:
 
     if (!pDstResource)
       return;
+    UseResource(pDstResource);
 
     BlitObject Dst(device, pDstResource);
 
@@ -2536,6 +2553,7 @@ public:
             enc.bindOutputBuffer<PipelineStage::Compute>(Slot, forward_rc(buffer), viewId, forward_rc(counter), slice);
           });
         } else {
+          UseView(pUAV);
           EmitST([=, texture = pUAV->texture(), viewId = pUAV->viewId()](ArgumentEncodingContext &enc) mutable {
             enc.bindOutputTexture<PipelineStage::Compute>(Slot, forward_rc(texture), viewId);
           });
@@ -2853,6 +2871,7 @@ public:
           auto rtv = static_cast<D3D11RenderTargetView *>(ppRenderTargetViews[rtv_index]);
           if (BoundRTVs[rtv_index].ptr() == rtv)
             continue;
+          UseView(rtv);
           BoundRTVs[rtv_index] = rtv;
           should_invalidate_pass = true;
           OMResolveSRVHazard(rtv);
@@ -2867,6 +2886,7 @@ public:
 
       if (auto dsv = static_cast<D3D11DepthStencilView *>(pDepthStencilView)) {
         if (state_.OutputMerger.DSV.ptr() != dsv) {
+          UseView(dsv);
           state_.OutputMerger.DSV = dsv;
           should_invalidate_pass = true;
           OMResolveSRVHazard(dsv);
@@ -2907,6 +2927,7 @@ public:
               enc.bindOutputBuffer<PipelineStage::Pixel>(Slot, forward_rc(buffer), viewId, forward_rc(counter), slice);
             });
           } else {
+            UseView(pUAV);
             EmitST([=, texture = pUAV->texture(), viewId = pUAV->viewId()](ArgumentEncodingContext &enc) mutable {
               enc.bindOutputTexture<PipelineStage::Pixel>(Slot, forward_rc(texture), viewId);
             });
@@ -3599,6 +3620,7 @@ public:
             enc.bindBuffer<Stage>(slot, forward_rc(buffer), viewId, slice);
           });
         } else {
+          UseView(pView);
           EmitST([=, texture = pView->texture(), viewId = pView->viewId()](ArgumentEncodingContext &enc) mutable {
             enc.bindTexture<Stage>(slot, forward_rc(texture), viewId);
           });
@@ -4375,32 +4397,216 @@ public:
   }
 
   void
-  ClearRenderTargetView(D3D11RenderTargetView *pRenderTargetView, const FLOAT ColorRGBA[4]) {
-    InvalidateCurrentPass();
-    auto clear_color = WMTClearColor{ColorRGBA[0], ColorRGBA[1], ColorRGBA[2], ColorRGBA[3]};
-    auto &props = pRenderTargetView->description();
+  ApplyPendingClears(ID3D11Resource *pResource) override {
+    UseResource(pResource);
+    PrunePendingClears();
+  }
 
-    EmitOP([texture = pRenderTargetView->texture(), view = pRenderTargetView->viewId(),
-          clear_color = std::move(clear_color), array_length = props.RenderTargetArrayLength](ArgumentEncodingContext &enc) mutable {
-      enc.clearColor(forward_rc(texture), view, array_length, clear_color);
-    });
+  void
+  ClearRenderTargetView(D3D11RenderTargetView *pRenderTargetView, const FLOAT ColorRGBA[4]) {
+    auto &props = pRenderTargetView->description();
+    PendingClear clear{};
+    clear.texture = pRenderTargetView->texture();
+    clear.viewId = pRenderTargetView->viewId();
+    clear.arrayLength = props.RenderTargetArrayLength;
+    clear.color = WMTClearColor{ColorRGBA[0], ColorRGBA[1], ColorRGBA[2], ColorRGBA[3]};
+    if (DeferClear(pRenderTargetView->resource_.ptr(), clear))
+      return;
+    UseTexture(clear.texture.ptr());
+    EmitClear(clear);
   }
 
   void
   ClearDepthStencilView(D3D11DepthStencilView *pDepthStencilView, UINT ClearFlags, FLOAT Depth, UINT8 Stencil) {
     if (ClearFlags == 0)
       return;
-    InvalidateCurrentPass();
     auto &props = pDepthStencilView->description();
+    PendingClear clear{};
+    clear.texture = pDepthStencilView->texture();
+    clear.viewId = pDepthStencilView->viewId();
+    clear.arrayLength = props.RenderTargetArrayLength;
+    clear.depthStencil = true;
+    clear.flags = ClearFlags & 0b11;
+    clear.depth = Depth;
+    clear.stencil = Stencil;
+    clear.renamable = pDepthStencilView->renamable();
+    if (DeferClear(pDepthStencilView->resource_.ptr(), clear))
+      return;
+    UseTexture(clear.texture.ptr());
+    EmitClear(clear);
+  }
 
-    EmitOP([texture = pDepthStencilView->texture(), view = pDepthStencilView->viewId(),
-          renamable = pDepthStencilView->renamable(), array_length = props.RenderTargetArrayLength,
-          ClearFlags = ClearFlags & 0b11, Depth, Stencil](ArgumentEncodingContext &enc) mutable {
-      if (renamable.ptr() && ClearFlags == DepthStencilPlanarFlags(texture->pixelFormat())) {
-        texture->rename(renamable->getNext(enc.currentSeqId()));
+  /**
+  Deferred clears (the immediate context only).
+
+  A full clear of a texture that nothing has bound is not emitted when the application issues it. It waits, as
+  issued, until an API call names any view of that texture -- a bind of any kind, a copy, an update, a resolve, a
+  discard, a map, a command list that uses it, the MetalFX extension, a present of it -- and is emitted then, exactly
+  as it would have been. Nothing in between references the texture, so issuing the clear later cannot be observed. A
+  second full clear of the same view, covering the same planes, before any use replaces the first, which nothing
+  could have observed either: a clear nothing ever uses costs no GPU work. A bound texture, a shared or
+  GDI-compatible one, and any clear on a deferred context are emitted at once, as before. DXMT_DEFER_CLEARS=0
+  turns the deferral off.
+  */
+  struct PendingClear {
+    Rc<Texture> texture;
+    uint64_t viewId = 0;
+    unsigned arrayLength = 0;
+    bool depthStencil = false;
+    WMTClearColor color{};
+    unsigned flags = 0;
+    float depth = 0;
+    uint8_t stencil = 0;
+    Rc<RenamableTexturePool> renamable;
+  };
+
+  void
+  EmitClear(PendingClear &clear) {
+    InvalidateCurrentPass();
+    if (clear.depthStencil) {
+      EmitOP([texture = std::move(clear.texture), view = clear.viewId, renamable = std::move(clear.renamable),
+              array_length = clear.arrayLength, ClearFlags = clear.flags, Depth = clear.depth,
+              Stencil = clear.stencil](ArgumentEncodingContext &enc) mutable {
+        if (renamable.ptr() && ClearFlags == DepthStencilPlanarFlags(texture->pixelFormat())) {
+          texture->rename(renamable->getNext(enc.currentSeqId()));
+        }
+        enc.clearDepthStencil(forward_rc(texture), view, array_length, ClearFlags, Depth, Stencil);
+      });
+    } else {
+      EmitOP([texture = std::move(clear.texture), view = clear.viewId, clear_color = clear.color,
+              array_length = clear.arrayLength](ArgumentEncodingContext &enc) mutable {
+        enc.clearColor(forward_rc(texture), view, array_length, clear_color);
+      });
+    }
+  }
+
+  static bool
+  ClearDeferrable(D3D11ResourceCommon *resource) {
+    if (resource->keyedMutex().ptr())
+      return false;
+    D3D11_RESOURCE_DIMENSION dimension;
+    resource->GetType(&dimension);
+    UINT misc = 0;
+    if (dimension == D3D11_RESOURCE_DIMENSION_TEXTURE1D) {
+      D3D11_TEXTURE1D_DESC desc;
+      static_cast<ID3D11Texture1D *>(static_cast<ID3D11Resource *>(resource))->GetDesc(&desc);
+      misc = desc.MiscFlags;
+    } else if (dimension == D3D11_RESOURCE_DIMENSION_TEXTURE2D) {
+      D3D11_TEXTURE2D_DESC desc;
+      static_cast<ID3D11Texture2D *>(static_cast<ID3D11Resource *>(resource))->GetDesc(&desc);
+      misc = desc.MiscFlags;
+    } else if (dimension == D3D11_RESOURCE_DIMENSION_TEXTURE3D) {
+      D3D11_TEXTURE3D_DESC desc;
+      static_cast<ID3D11Texture3D *>(static_cast<ID3D11Resource *>(resource))->GetDesc(&desc);
+      misc = desc.MiscFlags;
+    } else {
+      return false;
+    }
+    return (misc & (D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX |
+                    D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_GDI_COMPATIBLE)) == 0;
+  }
+
+  bool
+  TextureBound(const Texture *texture) {
+    auto &om = state_.OutputMerger;
+    for (unsigned i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; i++) {
+      if (om.RTVs[i] && om.RTVs[i]->texture_ == texture)
+        return true;
+    }
+    if (om.DSV && om.DSV->texture_ == texture)
+      return true;
+    for (const auto &[slot, bound] : om.UAVs) {
+      if (bound.View->texture_ == texture)
+        return true;
+    }
+    for (const auto &[slot, bound] : state_.ComputeStageUAV.UAVs) {
+      if (bound.View->texture_ == texture)
+        return true;
+    }
+    for (auto &stage : state_.ShaderStages) {
+      for (const auto &[slot, bound] : stage.SRVs) {
+        if (bound.SRV->texture_ == texture)
+          return true;
       }
-      enc.clearDepthStencil(forward_rc(texture), view, array_length, ClearFlags, Depth, Stencil);
-    });
+    }
+    return false;
+  }
+
+  bool
+  DeferClear(D3D11ResourceCommon *resource, PendingClear &clear) {
+    Texture *texture = clear.texture.ptr();
+    if (!defer_clears_ || !resource || !texture || !ClearDeferrable(resource) || TextureBound(texture))
+      return false;
+    if (texture->pending_clears) {
+      // Superseded: the same view, every plane of the earlier clear cleared again, nothing used in between.
+      for (auto &earlier : pending_clears_) {
+        if (earlier.texture.ptr() == texture && earlier.viewId == clear.viewId &&
+            earlier.depthStencil == clear.depthStencil && (earlier.flags & ~clear.flags) == 0) {
+          earlier.texture = nullptr;
+          earlier.renamable = nullptr;
+          texture->pending_clears--;
+        }
+      }
+      std::erase_if(pending_clears_, [](const PendingClear &c) { return !c.texture.ptr(); });
+    }
+    if (pending_clears_.size() >= kMaxPendingClears)
+      ApplyPendingClearsOf(pending_clears_.front().texture.ptr());
+    texture->pending_clears++;
+    pending_clears_.push_back(std::move(clear));
+    return true;
+  }
+
+  void
+  ApplyPendingClearsOf(Texture *texture) {
+    if (!texture || !texture->pending_clears)
+      return;
+    texture->pending_clears = 0;
+    for (auto &clear : pending_clears_) {
+      if (clear.texture.ptr() == texture)
+        EmitClear(clear);
+    }
+    std::erase_if(pending_clears_, [](const PendingClear &c) { return !c.texture.ptr(); });
+  }
+
+  void
+  ApplyAllPendingClears() {
+    for (auto &clear : pending_clears_) {
+      clear.texture->pending_clears = 0;
+      EmitClear(clear);
+    }
+    pending_clears_.clear();
+  }
+
+  /** A pending clear of a texture only this list still holds can never be used: dropped. */
+  void
+  PrunePendingClears() {
+    for (auto &clear : pending_clears_) {
+      Texture *texture = clear.texture.ptr();
+      if (texture && texture->refCount() == texture->pending_clears) {
+        texture->pending_clears--;
+        clear.texture = nullptr;
+        clear.renamable = nullptr;
+      }
+    }
+    std::erase_if(pending_clears_, [](const PendingClear &c) { return !c.texture.ptr(); });
+  }
+
+  /** The application is about to use (any view of) this texture: its pending clears go first. */
+  void UseTexture(Texture *texture);
+
+  void
+  UseResource(ID3D11Resource *pResource) {
+    if (pResource) {
+      if (auto texture = GetResourceCommon(pResource)->texture().ptr())
+        UseTexture(texture);
+    }
+  }
+
+  template <typename View>
+  void
+  UseView(View *view) {
+    if (view && view->texture_)
+      UseTexture(view->texture_);
   }
 
   /**
@@ -5151,6 +5357,9 @@ public:
 
 protected:
   D3D11ContextState state_;
+  std::vector<PendingClear> pending_clears_;
+  bool defer_clears_ = false;
+  static constexpr size_t kMaxPendingClears = 256;
   D3D11UserDefinedAnnotation annotation_;
   MTLD3D11ContextExt<ContextInternalState> ext_;
   uint64_t max_object_threadgroups_;
@@ -5249,6 +5458,11 @@ public:
     std::lock_guard<typename ContextInternalState::device_mutex_t> lock(ctx_->mutex);
     if (!pDesc || (FxGeneration != MTL_FX_GENERATION_METAL3 && FxGeneration != MTL_FX_GENERATION_METAL4))
       return;
+    ctx_->UseResource(pDesc->Color);
+    ctx_->UseResource(pDesc->Output);
+    ctx_->UseResource(pDesc->Depth);
+    ctx_->UseResource(pDesc->MotionVector);
+    ctx_->UseResource(pDesc->ExposureTexture);
     Rc<Texture> input, output, depth, motion_vector, exposure;
     if (!(input = static_cast<D3D11ResourceCommon *>(pDesc->Color)->texture()))
       return;
@@ -5513,6 +5727,7 @@ public:
     }
     read_staging_resources.clear();
     written_staging_resources.clear();
+    used_textures.clear();
     visibility_query_count = 0;
     issued_visibility_query.clear();
     issued_event_query.clear();
@@ -5597,6 +5812,8 @@ public:
   std::vector<used_dynamic_lineartexture> used_dynamic_lineartextures;
   std::vector<Rc<StagingResource>> read_staging_resources;
   std::vector<Rc<StagingResource>> written_staging_resources;
+  // The textures the list names (UseTexture on a deferred context): ExecuteCommandList applies their pending clears.
+  std::vector<Rc<Texture>> used_textures;
   uint32_t visibility_query_count = 0;
   std::vector<std::pair<Com<MTLD3D11OcclusionQuery>, uint32_t>> issued_visibility_query;
   std::vector<Com<MTLD3D11EventQuery>> issued_event_query;

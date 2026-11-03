@@ -759,6 +759,7 @@ public:
 
     std::unique_lock<d3d11_device_mutex> lock(device_->mutex);
 
+    device_context_->ApplyPendingClears(backbuffer_.ptr());
     device_context_->PrepareFlush();
     if (hr == DXGI_STATUS_OCCLUDED) {
       // flush commands without presenting

@@ -37,3 +37,7 @@ executable('dx11_metalfx', ['dx11_metalfx.cpp'],
 executable('dx11_buffer_residency', ['dx11_buffer_residency.cpp'],
   dependencies: [ lib_d3d11, lib_d3dcompiler ]
 )
+
+executable('dx11_deferred_clear', ['dx11_deferred_clear.cpp'],
+  dependencies: [ lib_d3d11, lib_d3dcompiler ]
+)

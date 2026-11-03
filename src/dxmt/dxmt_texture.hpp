@@ -179,6 +179,17 @@ public:
   void incRef();
   void decRef();
 
+  uint32_t
+  refCount() const {
+    return refcount_.load(std::memory_order_relaxed);
+  }
+
+  /**
+  Clears of this texture the D3D11 immediate context holds back until something uses it (DeferClear in
+  d3d11_context_impl.cpp). Touched only by that context, under its lock.
+  */
+  uint32_t pending_clears = 0;
+
   TextureViewKey createView(TextureViewDescriptor const &descriptor);
 
   constexpr TextureAllocation *
