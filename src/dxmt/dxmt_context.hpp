@@ -539,6 +539,9 @@ public:
 
   void retainAllocation(Allocation* allocation);
 
+  bool makeBufferResident(BufferAllocation *allocation);
+  WMT::Reference<WMT::ResidencySet> finalizeBufferResidency(WMT::CommandBuffer cmdbuf);
+
   template <PipelineStage stage, PipelineKind kind>
   void
   makeResident(WMT::Resource resource, DXMT_RESOURCE_RESIDENCY requested) {
@@ -559,6 +562,8 @@ public:
   void
   makeResident(Counter *counter) {
     auto allocation = getCounterAllocation(counter)->buffer();
+    if (buffer_residency_enabled_ && makeBufferResident(allocation))
+      return;
     uint64_t encoder_id = currentEncoder()->id;
     DXMT_RESOURCE_RESIDENCY requested = GetResidencyMask<kind>(stage, true, true);
     if (CheckResourceResidency(allocation->residencyState, encoder_id, requested)) {
@@ -569,6 +574,8 @@ public:
   void
   makeResident(Buffer *buffer, bool read = true, bool write = false) {
     auto allocation = buffer->current();
+    if (buffer_residency_enabled_ && makeBufferResident(allocation))
+      return;
     uint64_t encoder_id = currentEncoder()->id;
     DXMT_RESOURCE_RESIDENCY requested = GetResidencyMask<kind>(stage, read, write);
     if (CheckResourceResidency(allocation->residencyState, encoder_id, requested)) {
@@ -896,6 +903,10 @@ private:
 
   uint64_t seq_id_;
   uint64_t frame_id_;
+
+  bool buffer_residency_enabled_ = false;
+  WMT::Reference<WMT::ResidencySet> buffer_residency_set_;
+  std::vector<WMT::Allocation> pending_residency_buffers_;
 
   struct chunk {
     void *ptr;

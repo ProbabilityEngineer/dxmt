@@ -3192,12 +3192,25 @@ _MTLDevice_newTileRenderPipelineState(void *obj) {
 static NTSTATUS
 _MTLDevice_newResidencySet(void *obj) {
   struct unixcall_mtldevice_newresidencyset *params = obj;
-  NSError *err = NULL;
-  MTLResidencySetDescriptor *descriptor = [[MTLResidencySetDescriptor alloc] init];
-  descriptor.initialCapacity = params->init_capacity;
-  params->ret_set = (obj_handle_t)[(id<MTLDevice>)params->device newResidencySetWithDescriptor:descriptor error:&err];
-  params->ret_error = (obj_handle_t)[err retain];
-  [descriptor release];
+  params->ret_set = 0;
+  params->ret_error = 0;
+  if (@available(macOS 15.0, *)) {
+    NSError *err = NULL;
+    MTLResidencySetDescriptor *descriptor = [[MTLResidencySetDescriptor alloc] init];
+    descriptor.initialCapacity = params->init_capacity;
+    params->ret_set = (obj_handle_t)[(id<MTLDevice>)params->device newResidencySetWithDescriptor:descriptor error:&err];
+    params->ret_error = (obj_handle_t)[err retain];
+    [descriptor release];
+  }
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLCommandBuffer_useResidencySet(void *obj) {
+  struct unixcall_generic_obj_obj_noret *params = obj;
+  if (@available(macOS 15.0, *)) {
+    [(id<MTLCommandBuffer>)params->handle useResidencySet:(id<MTLResidencySet>)params->arg];
+  }
   return STATUS_SUCCESS;
 }
 
@@ -3572,6 +3585,7 @@ const void *__wine_unix_call_funcs[] = {
     &_MTL4CommandQueue_signalEvent,
     &_MTLDevice_newTemporalScalerMetal4,
     &_MTL4CommandBuffer_encodeTemporalScale,
+    &_MTLCommandBuffer_useResidencySet,
 };
 
 #ifndef DXMT_NATIVE
@@ -3739,5 +3753,6 @@ const void *__wine_unix_call_wow64_funcs[] = {
     &_MTL4CommandQueue_signalEvent,
     &_MTLDevice_newTemporalScalerMetal4,
     &_MTL4CommandBuffer_encodeTemporalScale,
+    &_MTLCommandBuffer_useResidencySet,
 };
 #endif

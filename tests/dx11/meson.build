@@ -33,3 +33,7 @@ executable('dx11_metalfx', ['dx11_metalfx.cpp'],
   include_directories: include_directories('../../src/d3d11', '../../src/util'),
   dependencies: [ lib_d3d11, lib_dxgi ]
 )
+
+executable('dx11_buffer_residency', ['dx11_buffer_residency.cpp'],
+  dependencies: [ lib_d3d11, lib_d3dcompiler ]
+)

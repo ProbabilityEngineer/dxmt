@@ -100,6 +100,11 @@ public:
     return flags_;
   }
 
+  WMTResourceOptions
+  resourceOptions() const {
+    return info_.options;
+  }
+
   void *
   mappedMemory(uint32_t sub) const noexcept {
     return reinterpret_cast<void *>(reinterpret_cast<std::uintptr_t>(mappedMemory_) + sub * suballocation_size_);
@@ -144,6 +149,7 @@ public:
   }
 
   DXMT_RESOURCE_RESIDENCY_STATE residencyState;
+  uint64_t last_residency_set_id = ~uint64_t(0); // encode thread; same scope as allocation retention
   small_vector<GenericAccessTracker, 1> fenceTrackers;
 
 private:

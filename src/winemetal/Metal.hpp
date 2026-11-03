@@ -640,6 +640,10 @@ public:
 class CommandBuffer : public Object {
 public:
   void
+  useResidencySet(ResidencySet residency_set) {
+    MTLCommandBuffer_useResidencySet(handle, residency_set.handle);
+  }
+  void
   commit() {
     return MTLCommandBuffer_commit(handle);
   }

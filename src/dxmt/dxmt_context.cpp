@@ -24,6 +24,7 @@
 #include "dxmt_occlusion_query.hpp"
 #include "dxmt_presenter.hpp"
 #include "wsi_platform.hpp"
+#include "util_env.hpp"
 #include <cstdint>
 #include <cfloat>
 
@@ -42,6 +43,8 @@ ArgumentEncodingContext::ArgumentEncodingContext(CommandQueue &queue, WMT::Devic
     timestamp_state_(device),
     queue_(queue),
     metal4_temporal_(metal4_temporal) {
+  const auto residency_option = env::getEnvVar("DXMT_RESIDENCY_SET");
+  buffer_residency_enabled_ = residency_option.empty() || residency_option == "1";
   dummy_sampler_info_.support_argument_buffers = true;
   dummy_sampler_info_.border_color = WMTSamplerBorderColorTransparentBlack;
   dummy_sampler_info_.compare_function = WMTCompareFunctionNever;
@@ -74,6 +77,47 @@ ArgumentEncodingContext::ArgumentEncodingContext(CommandQueue &queue, WMT::Devic
 ArgumentEncodingContext::~ArgumentEncodingContext() {
   wsi::aligned_free(dummy_cbuffer_host_);
 };
+
+bool
+ArgumentEncodingContext::makeBufferResident(BufferAllocation *allocation) {
+  if (!allocation->buffer() ||
+      (allocation->resourceOptions() & (WMTResourceHazardTrackingModeUntracked | WMTResourceHazardTrackingModeTracked)) !=
+          WMTResourceHazardTrackingModeUntracked ||
+      allocation->flags().test(BufferAllocationFlag::AllocatedOnHeap))
+    return false;
+
+  // Create before omitting any declarations, so failure can fall back at the original stream position.
+  if (!buffer_residency_set_) {
+    WMT::Error error;
+    buffer_residency_set_ = device_.newResidencySet(256, error);
+    if (!buffer_residency_set_) {
+      buffer_residency_enabled_ = false;
+      WARN("Buffer residency sets unavailable; retaining useResource declarations");
+      return false;
+    }
+  }
+  if (allocation->last_residency_set_id != seq_id_) {
+    retainAllocation(allocation);
+    pending_residency_buffers_.push_back(allocation->buffer());
+    allocation->last_residency_set_id = seq_id_;
+  }
+  // Only untracked raw buffers reach here: access() still handles every read/write hazard.
+  // Textures, texture-buffer views and tracked buffers keep their original usage/stage declarations.
+  return true;
+}
+
+WMT::Reference<WMT::ResidencySet>
+ArgumentEncodingContext::finalizeBufferResidency(WMT::CommandBuffer cmdbuf) {
+  if (!buffer_residency_set_)
+    return {};
+  buffer_residency_set_.addAllocations(pending_residency_buffers_.data(), pending_residency_buffers_.size());
+  buffer_residency_set_.commit();
+  cmdbuf.useResidencySet(buffer_residency_set_);
+  pending_residency_buffers_.clear();
+  // The chunk holds the set until GPU completion. useResidencySet manages residency automatically;
+  // no explicit requestResidency/endResidency pair is used.
+  return std::move(buffer_residency_set_);
+}
 
 template void ArgumentEncodingContext::encodeVertexBuffers<PipelineKind::Ordinary>(uint32_t slot_mask, uint64_t argument_buffer_offset);
 template void ArgumentEncodingContext::encodeVertexBuffers<PipelineKind::Tessellation>(uint32_t slot_mask, uint64_t argument_buffer_offset);
@@ -903,6 +947,7 @@ ArgumentEncodingContext::resolveRenderPassBarrier() {
 
 void
 ArgumentEncodingContext::$$setEncodingContext(uint64_t seq_id, uint64_t frame_id) {
+  assert(!buffer_residency_set_ && pending_residency_buffers_.empty());
   current_buffer_chunk_ = 0;
   cpu_buffer_ = cpu_buffer_chunks_[current_buffer_chunk_].ptr;
   cpu_buffer_offset_ = 0;

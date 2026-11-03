@@ -2116,6 +2116,8 @@ WINEMETAL_API void MTLResidencySet_commit(obj_handle_t residency_set);
 
 WINEMETAL_API void MTLCommandQueue_addResidencySet(obj_handle_t queue, obj_handle_t residency_set);
 
+WINEMETAL_API void MTLCommandBuffer_useResidencySet(obj_handle_t cmdbuf, obj_handle_t residency_set);
+
 enum WMTHeapType : uint32_t {
   WMTHeapTypeAutomatic = 0,
   WMTHeapTypePlacement = 1,

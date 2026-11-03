@@ -1493,3 +1493,11 @@ MTL4CommandBuffer_encodeTemporalScale(
   WMT_MEMPTR_SET(params.props, props);
   UNIX_CALL(162, &params);
 }
+
+WINEMETAL_API void
+MTLCommandBuffer_useResidencySet(obj_handle_t cmdbuf, obj_handle_t residency_set) {
+  struct unixcall_generic_obj_obj_noret params;
+  params.handle = cmdbuf;
+  params.arg = residency_set;
+  UNIX_CALL(163, &params);
+}

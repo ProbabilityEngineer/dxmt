@@ -133,6 +133,7 @@ public:
 private:
   CommandQueue *queue;
   WMT::Reference<WMT::CommandBuffer> attached_cmdbuf;
+  WMT::Reference<WMT::ResidencySet> buffer_residency_set_;
   
   CommandList<ArgumentEncodingContext> list_enc;
   AllocationRefTracking ref_tracker;
@@ -148,6 +149,7 @@ public:
     readback = {};
     list_enc.reset();
     attached_cmdbuf = nullptr;
+    buffer_residency_set_ = nullptr;
     metal4_objects.clear();
     ref_tracker.clear();
   }
