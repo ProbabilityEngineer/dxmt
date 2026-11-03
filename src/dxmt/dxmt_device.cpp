@@ -24,7 +24,13 @@ public:
     return max_object_threadgroups_;
   };
 
-  DeviceImpl(const DEVICE_DESC &desc) : device_(desc.device), cmd_queue_(device_) {
+  virtual Metal4Temporal &
+  metal4Temporal() final {
+    return metal4_temporal_;
+  };
+
+  DeviceImpl(const DEVICE_DESC &desc)
+      : device_(desc.device), metal4_temporal_(device_), cmd_queue_(device_, &metal4_temporal_) {
     uint64_t macos_major_version = 0, macos_minor_version = 0;
     int version_conf = Config::getInstance().getOption<int>("dxmt.shaderMetalVersion", 0);
     switch (version_conf) {
@@ -57,6 +63,9 @@ public:
 
 private:
   WMT::Reference<WMT::Device> device_;
+  // Declared before cmd_queue_ because the queue hands a pointer to it to the
+  // encoding context, and it must be constructed first.
+  Metal4Temporal metal4_temporal_;
   CommandQueue cmd_queue_;
   WMTMetalVersion metal_version_;
   uint64_t max_object_threadgroups_;

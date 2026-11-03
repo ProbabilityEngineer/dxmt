@@ -224,6 +224,38 @@ struct unixcall_mtlcommandbuffer_spatial_scale {
   obj_handle_t fence;
 };
 
+// Metal 4 temporal upscaling. Reuses the Metal 3 temporal-scale payload: the
+// scaler refines the same base protocol, so the properties are identical.
+struct unixcall_mtldevice_newfxtemporalscaler_metal4 {
+  obj_handle_t device;
+  obj_handle_t compiler;
+  struct WMTConstMemoryPointer info;
+  obj_handle_t ret;
+};
+
+struct unixcall_mtl4commandbuffer_begin {
+  obj_handle_t cmdbuf;
+  obj_handle_t allocator;
+};
+
+struct unixcall_mtl4commandencoder_fence {
+  obj_handle_t encoder;
+  obj_handle_t fence;
+  uint64_t stages;
+};
+
+struct unixcall_mtl4commandqueue_commit {
+  obj_handle_t queue;
+  struct WMTConstMemoryPointer cmdbufs;
+  uint64_t count;
+};
+
+struct unixcall_mtl4commandqueue_event {
+  obj_handle_t queue;
+  obj_handle_t event;
+  uint64_t value;
+};
+
 struct unixcall_nsstring_string {
   struct WMTConstMemoryPointer buffer_ptr;
   enum WMTStringEncoding encoding;

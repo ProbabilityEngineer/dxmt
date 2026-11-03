@@ -1331,3 +1331,165 @@ MTLTexture_getBytes(
   params.bytes_per_image = bytes_per_image;
   UNIX_CALL(145, &params);
 }
+
+// ---------------------------------------------------------------- Metal 4 FX
+
+WINEMETAL_API bool
+MTLDevice_supportsFXTemporalScalerMetal4(obj_handle_t device) {
+  struct unixcall_generic_obj_uint64_ret params;
+  params.handle = device;
+  params.ret = 0;
+  UNIX_CALL(146, &params);
+  return params.ret;
+}
+
+WINEMETAL_API obj_handle_t
+MTLDevice_newMTL4Compiler(obj_handle_t device) {
+  struct unixcall_generic_obj_obj_ret params;
+  params.handle = device;
+  params.ret = 0;
+  UNIX_CALL(147, &params);
+  return params.ret;
+}
+
+WINEMETAL_API obj_handle_t
+MTLDevice_newMTL4CommandQueue(obj_handle_t device) {
+  struct unixcall_generic_obj_obj_ret params;
+  params.handle = device;
+  params.ret = 0;
+  UNIX_CALL(148, &params);
+  return params.ret;
+}
+
+WINEMETAL_API obj_handle_t
+MTLDevice_newMTL4CommandAllocator(obj_handle_t device) {
+  struct unixcall_generic_obj_obj_ret params;
+  params.handle = device;
+  params.ret = 0;
+  UNIX_CALL(149, &params);
+  return params.ret;
+}
+
+WINEMETAL_API obj_handle_t
+MTLDevice_newMTL4CommandBuffer(obj_handle_t device) {
+  struct unixcall_generic_obj_obj_ret params;
+  params.handle = device;
+  params.ret = 0;
+  UNIX_CALL(150, &params);
+  return params.ret;
+}
+
+WINEMETAL_API void
+MTL4CommandBuffer_beginCommandBuffer(obj_handle_t cmdbuf, obj_handle_t allocator) {
+  struct unixcall_generic_obj_obj_noret params;
+  params.handle = cmdbuf;
+  params.arg = allocator;
+  UNIX_CALL(151, &params);
+}
+
+WINEMETAL_API void
+MTL4CommandBuffer_endCommandBuffer(obj_handle_t cmdbuf) {
+  struct unixcall_generic_obj_noret params;
+  params.handle = cmdbuf;
+  UNIX_CALL(152, &params);
+}
+
+WINEMETAL_API void
+MTL4CommandBuffer_useResidencySet(obj_handle_t cmdbuf, obj_handle_t residency_set) {
+  struct unixcall_generic_obj_obj_noret params;
+  params.handle = cmdbuf;
+  params.arg = residency_set;
+  UNIX_CALL(153, &params);
+}
+
+WINEMETAL_API obj_handle_t
+MTL4CommandBuffer_computeCommandEncoder(obj_handle_t cmdbuf) {
+  struct unixcall_generic_obj_obj_ret params;
+  params.handle = cmdbuf;
+  params.ret = 0;
+  UNIX_CALL(154, &params);
+  return params.ret;
+}
+
+WINEMETAL_API void
+MTL4CommandEncoder_waitForFence(obj_handle_t encoder, obj_handle_t fence, uint64_t stages) {
+  struct unixcall_mtl4commandencoder_fence params;
+  params.encoder = encoder;
+  params.fence = fence;
+  params.stages = stages;
+  UNIX_CALL(155, &params);
+}
+
+WINEMETAL_API void
+MTL4CommandEncoder_updateFence(obj_handle_t encoder, obj_handle_t fence, uint64_t stages) {
+  struct unixcall_mtl4commandencoder_fence params;
+  params.encoder = encoder;
+  params.fence = fence;
+  params.stages = stages;
+  UNIX_CALL(156, &params);
+}
+
+WINEMETAL_API void
+MTL4CommandEncoder_endEncoding(obj_handle_t encoder) {
+  struct unixcall_generic_obj_noret params;
+  params.handle = encoder;
+  UNIX_CALL(157, &params);
+}
+
+WINEMETAL_API void
+MTL4CommandQueue_commit(obj_handle_t queue, const obj_handle_t *cmdbufs, uint64_t count) {
+  struct unixcall_mtl4commandqueue_commit params;
+  params.queue = queue;
+  WMT_MEMPTR_SET(params.cmdbufs, cmdbufs);
+  params.count = count;
+  UNIX_CALL(158, &params);
+}
+
+WINEMETAL_API void
+MTL4CommandQueue_waitForEvent(obj_handle_t queue, obj_handle_t event, uint64_t value) {
+  struct unixcall_mtl4commandqueue_event params;
+  params.queue = queue;
+  params.event = event;
+  params.value = value;
+  UNIX_CALL(159, &params);
+}
+
+WINEMETAL_API void
+MTL4CommandQueue_signalEvent(obj_handle_t queue, obj_handle_t event, uint64_t value) {
+  struct unixcall_mtl4commandqueue_event params;
+  params.queue = queue;
+  params.event = event;
+  params.value = value;
+  UNIX_CALL(160, &params);
+}
+
+WINEMETAL_API obj_handle_t
+MTLDevice_newTemporalScalerMetal4(
+    obj_handle_t device, obj_handle_t compiler, const struct WMTFXTemporalScalerInfo *info
+) {
+  struct unixcall_mtldevice_newfxtemporalscaler_metal4 params;
+  params.device = device;
+  params.compiler = compiler;
+  WMT_MEMPTR_SET(params.info, info);
+  params.ret = 0;
+  UNIX_CALL(161, &params);
+  return params.ret;
+}
+
+WINEMETAL_API void
+MTL4CommandBuffer_encodeTemporalScale(
+    obj_handle_t cmdbuf, obj_handle_t scaler, obj_handle_t color, obj_handle_t output, obj_handle_t depth,
+    obj_handle_t motion, obj_handle_t exposure, obj_handle_t fence, const struct WMTFXTemporalScalerProps *props
+) {
+  struct unixcall_mtlcommandbuffer_temporal_scale params;
+  params.cmdbuf = cmdbuf;
+  params.scaler = scaler;
+  params.color = color;
+  params.output = output;
+  params.depth = depth;
+  params.motion = motion;
+  params.exposure = exposure;
+  params.fence = fence;
+  WMT_MEMPTR_SET(params.props, props);
+  UNIX_CALL(162, &params);
+}

@@ -736,6 +736,106 @@ public:
   }
 };
 
+
+class MTL4Compiler : public Object {
+public:
+};
+
+class MTL4CommandAllocator : public Object {
+public:
+};
+
+class MTL4CommandEncoder : public Object {
+public:
+  void
+  waitForFence(Fence fence, uint64_t stages) {
+    MTL4CommandEncoder_waitForFence(handle, fence.handle, stages);
+  }
+
+  void
+  updateFence(Fence fence, uint64_t stages) {
+    MTL4CommandEncoder_updateFence(handle, fence.handle, stages);
+  }
+
+  void
+  endEncoding() {
+    MTL4CommandEncoder_endEncoding(handle);
+  }
+};
+
+// There is no MTL4CommandBuffer completion query: it can only be observed
+// through the queue's events, or implicitly by a later wait in the consuming
+// stream. Callers must not expect to poll it.
+class MTL4CommandBuffer : public Object {
+public:
+  void
+  beginCommandBuffer(MTL4CommandAllocator &allocator) {
+    MTL4CommandBuffer_beginCommandBuffer(handle, allocator.handle);
+  }
+
+  void
+  endCommandBuffer() {
+    MTL4CommandBuffer_endCommandBuffer(handle);
+  }
+
+  // Must be called after beginCommandBuffer(): Metal drops residency declared
+  // before it.
+  void
+  useResidencySet(ResidencySet residency_set) {
+    MTL4CommandBuffer_useResidencySet(handle, residency_set.handle);
+  }
+
+  // Metal 4 has no blit command encoder, so this exists to host the scaler's
+  // fence wait/update -- it is expected to encode no work of its own.
+  MTL4CommandEncoder
+  computeCommandEncoder() {
+    return MTL4CommandEncoder{MTL4CommandBuffer_computeCommandEncoder(handle)};
+  }
+
+  void
+  encodeTemporalScale(
+      FXTemporalScaler scaler, Texture &color, Texture &output, Texture &depth, Texture &motion, Texture exposure,
+      Fence fence, const WMTFXTemporalScalerProps &props
+  ) {
+    MTL4CommandBuffer_encodeTemporalScale(
+        handle, scaler.handle, color.handle, output.handle, depth.handle, motion.handle, exposure.handle, fence.handle,
+        &props
+    );
+  }
+};
+
+// Metal 4 command queue: a submission stream separate from CommandQueue above.
+// MTL4CommandBuffer cannot be committed to the Metal 3 queue, and vice versa,
+// so work that needs MetalFX 4 is ordered against ordinary D3D11 work with
+// MTLEvents rather than by merging the two streams.
+//
+// Note the asymmetry Apple documents, which is why the wait/signal pair should
+// stay as close together as the dependency allows: a wait that times out here
+// simply unblocks subsequent work, whereas a timed-out wait inside a Metal 3
+// MTLCommandBuffer terminates that command buffer.
+class MTL4CommandQueue : public Object {
+public:
+  void
+  commit(const MTL4CommandBuffer *cmdbufs, uint64_t count) {
+    MTL4CommandQueue_commit(handle, &cmdbufs->handle, count);
+  }
+
+  // Gates all GPU work this queue executes after this point. Ordered with
+  // respect to the queue's own prior submissions, so successive frames'
+  // operations serialise here; that is acceptable for one scaler per frame but
+  // it is a throughput limit, not just a correctness device.
+  void
+  waitForEvent(Event event, uint64_t value) {
+    MTL4CommandQueue_waitForEvent(handle, event.handle, value);
+  }
+
+  // Signals once all GPU work prior to this point on this queue is complete.
+  void
+  signalEvent(Event event, uint64_t value) {
+    MTL4CommandQueue_signalEvent(handle, event.handle, value);
+  }
+};
+
 class Function : public Object {};
 
 class Library : public Object {
@@ -961,6 +1061,42 @@ public:
   Reference<FXSpatialScaler>
   newSpatialScaler(const WMTFXSpatialScalerInfo &info) {
     return Reference<FXSpatialScaler>(MTLDevice_newSpatialScaler(handle, &info));
+  }
+
+  // ---- Metal 4 -----------------------------------------------------------
+  // Separate submission stream from CommandQueue above: MTL4CommandBuffer is
+  // committed to MTL4CommandQueue, never to the Metal 3 queue. Both come from
+  // this device, which is what makes their MTLEvents interchangeable.
+
+  bool
+  supportsFXTemporalScalerMetal4() {
+    return MTLDevice_supportsFXTemporalScalerMetal4(handle);
+  }
+
+  Reference<MTL4Compiler>
+  newMTL4Compiler() {
+    return Reference<MTL4Compiler>(MTLDevice_newMTL4Compiler(handle));
+  }
+
+  Reference<MTL4CommandQueue>
+  newMTL4CommandQueue() {
+    return Reference<MTL4CommandQueue>(MTLDevice_newMTL4CommandQueue(handle));
+  }
+
+  Reference<MTL4CommandAllocator>
+  newMTL4CommandAllocator() {
+    return Reference<MTL4CommandAllocator>(MTLDevice_newMTL4CommandAllocator(handle));
+  }
+
+  Reference<MTL4CommandBuffer>
+  newMTL4CommandBuffer() {
+    return Reference<MTL4CommandBuffer>(MTLDevice_newMTL4CommandBuffer(handle));
+  }
+
+  // The Metal 4 temporal scaler, configured exactly like the Metal 3 one.
+  Reference<FXTemporalScaler>
+  newTemporalScalerMetal4(const MTL4Compiler &compiler, const WMTFXTemporalScalerInfo &info) {
+    return Reference<FXTemporalScaler>(MTLDevice_newTemporalScalerMetal4(handle, compiler.handle, &info));
   }
 
   Reference<BinaryArchive>

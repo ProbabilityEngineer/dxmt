@@ -127,6 +127,7 @@ public:
   uint64_t frame_;
   uint64_t signal_frame_latency_fence_;
   QueryReadbacks readback;
+  std::vector<WMT::Reference<WMT::Object>> metal4_objects;
   uint64_t resource_initializer_event_id;
 
 private:
@@ -146,10 +147,13 @@ public:
     signal_frame_latency_fence_ = ~0ull;
     readback = {};
     list_enc.reset();
-    ref_tracker.clear();
     attached_cmdbuf = nullptr;
+    metal4_objects.clear();
+    ref_tracker.clear();
   }
 };
+
+class Metal4Temporal;
 
 class CommandQueue {
 
@@ -202,7 +206,7 @@ public:
   ResourceInitializer initializer;
   CounterPool counter_pool;
 
-  CommandQueue(WMT::Device device);
+  CommandQueue(WMT::Device device, Metal4Temporal *metal4_temporal = nullptr);
 
   ~CommandQueue();
 
@@ -313,6 +317,10 @@ public:
   }
 
   void Retain(uint64_t seq, Allocation *allocation);
+
+  void Retain(uint64_t seq, WMT::Object object) {
+    chunks[seq % kCommandChunkCount].metal4_objects.emplace_back(object);
+  }
 };
 
 } // namespace dxmt

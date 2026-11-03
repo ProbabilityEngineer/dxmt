@@ -29,8 +29,18 @@ TemporalScaler::decRef() {
     delete this;
 }
 
-TemporalScaler::TemporalScaler(WMT::Device device, const WMTFXTemporalScalerInfo &info) {
-  scaler_ = device.newTemporalScaler(info);
+TemporalScaler::TemporalScaler(WMT::Device device, const WMTFXTemporalScalerInfo &info)
+    : TemporalScaler(device, info, FXGeneration::Metal3, {}) {
+}
+
+TemporalScaler::TemporalScaler(WMT::Device device, const WMTFXTemporalScalerInfo &info, FXGeneration generation,
+                               WMT::Reference<WMT::MTL4Compiler> compiler)
+    : compiler_(compiler), generation_(generation) {
+  if (generation == FXGeneration::Metal4) {
+    scaler_ = device.newTemporalScalerMetal4(compiler, info);
+  } else {
+    scaler_ = device.newTemporalScaler(info);
+  }
   fence_ = device.newFence();
 }
 

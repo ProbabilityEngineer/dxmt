@@ -645,7 +645,8 @@ public:
       return S_OK;
     }
 
-    if (riid == __uuidof(IMTLD3D11ContextExt) || riid == __uuidof(IMTLD3D11ContextExt1)) {
+    if (riid == __uuidof(IMTLD3D11ContextExt) || riid == __uuidof(IMTLD3D11ContextExt1) ||
+        riid == __uuidof(IMTLD3D11ContextExt2)) {
       *ppvObject = ref(&ext_);
       return S_OK;
     }
@@ -5178,7 +5179,7 @@ public:
 };
 
 template <typename ContextInternalState>
-class MTLD3D11ContextExt : public IMTLD3D11ContextExt1 {
+class MTLD3D11ContextExt : public IMTLD3D11ContextExt2 {
   class CachedTemporalScaler {
   public:
     WMTPixelFormat color_pixel_format;
@@ -5190,6 +5191,10 @@ class MTLD3D11ContextExt : public IMTLD3D11ContextExt1 {
     uint32_t input_height;
     uint32_t output_width;
     uint32_t output_height;
+    // Part of the cache key: a Metal 3 and a Metal 4 scaler configured
+    // identically are different objects on different command buffers, so they
+    // must never be confused for one another.
+    dxmt::FXGeneration fx_generation = dxmt::FXGeneration::Metal3;
     Rc<TemporalScaler> scaler;
     Rc<Texture> mv_downscaled;
   };
@@ -5230,7 +5235,20 @@ public:
   }
 
   void STDMETHODCALLTYPE TemporalUpscale(const MTL_TEMPORAL_UPSCALE_D3D11_DESC *pDesc) final {
+    // The original entry point, unchanged in behaviour: it has always meant
+    // MetalFX 3, and now says so explicitly rather than by absence of a field.
+    temporalUpscale(pDesc, MTL_FX_GENERATION_METAL3);
+  }
+
+  void STDMETHODCALLTYPE
+  TemporalUpscaleEx(const MTL_TEMPORAL_UPSCALE_D3D11_DESC *pDesc, MTL_FX_GENERATION FxGeneration) final {
+    temporalUpscale(pDesc, FxGeneration);
+  }
+
+  void temporalUpscale(const MTL_TEMPORAL_UPSCALE_D3D11_DESC *pDesc, MTL_FX_GENERATION FxGeneration) {
     std::lock_guard<typename ContextInternalState::device_mutex_t> lock(ctx_->mutex);
+    if (!pDesc || (FxGeneration != MTL_FX_GENERATION_METAL3 && FxGeneration != MTL_FX_GENERATION_METAL4))
+      return;
     Rc<Texture> input, output, depth, motion_vector, exposure;
     if (!(input = static_cast<D3D11ResourceCommon *>(pDesc->Color)->texture()))
       return;
@@ -5263,6 +5281,7 @@ public:
       if(depth->pixelFormat() != entry.depth_pixel_format) continue;
       if(motion_vector_format != entry.motion_vector_pixel_format) continue;
       if(pDesc->MotionVectorInDisplayRes != (entry.mv_downscaled != nullptr)) continue;
+      if((dxmt::FXGeneration)FxGeneration != entry.fx_generation) continue;
 
       scaler = entry.scaler;
       mv_downscaled = entry.mv_downscaled;
@@ -5294,7 +5313,40 @@ public:
       info.input_content_min_scale = 1.0f;
       info.input_content_max_scale =  3.0f;
       info.requires_synchronous_initialization = true;
-      scaler_entry.scaler = new TemporalScaler(ctx_->device->GetMTLDevice(), info);
+      // MetalFX 4 is a different object committed to a different command
+      // buffer, so the two generations cache independently and either can be
+      // live at once.
+      //
+      // An explicit MetalFX 4 request is NEVER satisfied with a Metal 3 scaler.
+      // Silently substituting one would make the caller's validation and A/B
+      // benchmarking meaningless and would hide a broken capability query, so an
+      // unsatisfiable request fails observably instead -- the same way an
+      // unsupported scaler configuration already fails above. Callers are
+      // expected to check MTL_FEATURE_METALFX_TEMPORAL_SCALER_METAL4 first.
+      auto &metal4 = ctx_->device->GetDXMTDevice().metal4Temporal();
+      const auto requested_generation = (dxmt::FXGeneration)FxGeneration;
+      if (requested_generation == FXGeneration::Metal4) {
+        if (!metal4.initialize()) {
+          ERR("TemporalUpscale: MetalFX 4 was requested but is unavailable on this device; query "
+              "MTL_FEATURE_METALFX_TEMPORAL_SCALER_METAL4 before requesting it");
+          return;
+        }
+        scaler_entry.scaler = new TemporalScaler(ctx_->device->GetMTLDevice(), info, FXGeneration::Metal4,
+                                                 metal4.compiler());
+        if (!scaler_entry.scaler->scaler().handle) {
+          // MetalFX publishes no supported-format list and reports an
+          // unsupported combination only by returning nil, so an unchecked
+          // result would encode nothing and leave the output untouched with no
+          // diagnostic. Refuse instead.
+          ERR("TemporalUpscale: MetalFX 4 scaler creation returned nil for this format/size combination");
+          return;
+        }
+      } else {
+        scaler_entry.scaler = new TemporalScaler(ctx_->device->GetMTLDevice(), info);
+      }
+      // Key the cache by what was actually created, never by what was asked
+      // for, so the two cannot disagree about which generation an entry holds.
+      scaler_entry.fx_generation = scaler_entry.scaler->generation();
       if (pDesc->MotionVectorInDisplayRes) {
         WMTTextureInfo tex_info;
         tex_info.width = scaler_entry.input_width;
@@ -5392,6 +5444,14 @@ public:
       if (FeatureSupportDataSize != sizeof(BOOL))
         return E_INVALIDARG;
       *reinterpret_cast<BOOL *>(pFeatureSupportData) = ctx_->device->GetMTLDevice().supportsFXTemporalScaler();
+      return S_OK;
+    }
+    case MTL_FEATURE_METALFX_TEMPORAL_SCALER_METAL4: {
+      if (FeatureSupportDataSize != sizeof(BOOL))
+        return E_INVALIDARG;
+      // A capability answer, not an error: FALSE means "use Metal 3", which
+      // remains available.
+      *reinterpret_cast<BOOL *>(pFeatureSupportData) = ctx_->device->GetDXMTDevice().metal4Temporal().available();
       return S_OK;
     }
     }

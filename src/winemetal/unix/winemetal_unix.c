@@ -1513,6 +1513,233 @@ _MTLCommandBuffer_encodeSpatialScale(void *obj) {
   return STATUS_SUCCESS;
 }
 
+// ------------------------------------------------------------------ Metal 4 FX
+//
+// Every entry point below is a no-op unless the host is macOS 26 or newer,
+// because none of these symbols exist on older systems. Callers get nil / false
+// and fall back to the Metal 3 path, which is the same contract
+// _MTLDevice_supportsFXTemporalScaler already provides for older GPUs.
+
+static bool
+supports_metal4fx(obj_handle_t device) {
+  if (@available(macOS 26, *)) {
+    return [MTLFXTemporalScalerDescriptor supportsMetal4FX:(id<MTLDevice>)device];
+  }
+  return false;
+}
+
+static NTSTATUS
+_MTLDevice_supportsFXTemporalScalerMetal4(void *obj) {
+  struct unixcall_generic_obj_uint64_ret *params = obj;
+  params->ret = supports_metal4fx(params->handle);
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLDevice_newMTL4Compiler(void *obj) {
+  struct unixcall_generic_obj_obj_ret *params = obj;
+  params->ret = 0;
+  if (@available(macOS 26, *)) {
+    MTL4CompilerDescriptor *desc = [[MTL4CompilerDescriptor alloc] init];
+    params->ret = (obj_handle_t)[(id<MTLDevice>)params->handle newCompilerWithDescriptor:desc error:nil];
+    [desc release];
+  }
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLDevice_newMTL4CommandQueue(void *obj) {
+  struct unixcall_generic_obj_obj_ret *params = obj;
+  params->ret = 0;
+  if (@available(macOS 26, *)) {
+    params->ret = (obj_handle_t)[(id<MTLDevice>)params->handle newMTL4CommandQueue];
+  }
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLDevice_newMTL4CommandAllocator(void *obj) {
+  struct unixcall_generic_obj_obj_ret *params = obj;
+  params->ret = 0;
+  if (@available(macOS 26, *)) {
+    MTL4CommandAllocatorDescriptor *desc = [[MTL4CommandAllocatorDescriptor alloc] init];
+    params->ret = (obj_handle_t)[(id<MTLDevice>)params->handle newCommandAllocatorWithDescriptor:desc error:nil];
+    [desc release];
+  }
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLDevice_newMTL4CommandBuffer(void *obj) {
+  struct unixcall_generic_obj_obj_ret *params = obj;
+  params->ret = 0;
+  if (@available(macOS 26, *)) {
+    // On Metal 4 this is the Metal 4 command buffer. The Metal 3 buffer still
+    // comes from MTLCommandQueue_commandBuffer.
+    params->ret = (obj_handle_t)[(id<MTLDevice>)params->handle newCommandBuffer];
+  }
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTL4CommandBuffer_beginCommandBuffer(void *obj) {
+  struct unixcall_generic_obj_obj_noret *params = obj;
+  if (@available(macOS 26, *)) {
+    [(id<MTL4CommandBuffer>)params->handle
+        beginCommandBufferWithAllocator:(id<MTL4CommandAllocator>)params->arg];
+  }
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTL4CommandBuffer_endCommandBuffer(void *obj) {
+  struct unixcall_generic_obj_noret *params = obj;
+  if (@available(macOS 26, *)) {
+    [(id<MTL4CommandBuffer>)params->handle endCommandBuffer];
+  }
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTL4CommandBuffer_useResidencySet(void *obj) {
+  struct unixcall_generic_obj_obj_noret *params = obj;
+  if (@available(macOS 26, *)) {
+    // Must be called after beginCommandBufferWithAllocator: -- Metal drops
+    // residency declared before it.
+    [(id<MTL4CommandBuffer>)params->handle useResidencySet:(id<MTLResidencySet>)params->arg];
+  }
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTL4CommandBuffer_computeCommandEncoder(void *obj) {
+  struct unixcall_generic_obj_obj_ret *params = obj;
+  params->ret = 0;
+  if (@available(macOS 26, *)) {
+    params->ret = (obj_handle_t)[(id<MTL4CommandBuffer>)params->handle computeCommandEncoder];
+  }
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTL4CommandEncoder_waitForFence(void *obj) {
+  struct unixcall_mtl4commandencoder_fence *params = obj;
+  if (@available(macOS 26, *)) {
+    [(id<MTL4CommandEncoder>)params->encoder
+        waitForFence:(id<MTLFence>)params->fence
+        beforeEncoderStages:(MTLStages)params->stages];
+  }
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTL4CommandEncoder_updateFence(void *obj) {
+  struct unixcall_mtl4commandencoder_fence *params = obj;
+  if (@available(macOS 26, *)) {
+    [(id<MTL4CommandEncoder>)params->encoder
+        updateFence:(id<MTLFence>)params->fence
+        afterEncoderStages:(MTLStages)params->stages];
+  }
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTL4CommandEncoder_endEncoding(void *obj) {
+  struct unixcall_generic_obj_noret *params = obj;
+  if (@available(macOS 26, *)) {
+    [(id<MTL4CommandEncoder>)params->handle endEncoding];
+  }
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTL4CommandQueue_commit(void *obj) {
+  struct unixcall_mtl4commandqueue_commit *params = obj;
+  if (@available(macOS 26, *)) {
+    [(id<MTL4CommandQueue>)params->queue
+        commit:(const id<MTL4CommandBuffer> *)params->cmdbufs.ptr
+        count:params->count
+        options:nil];
+  }
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTL4CommandQueue_waitForEvent(void *obj) {
+  struct unixcall_mtl4commandqueue_event *params = obj;
+  if (@available(macOS 26, *)) {
+    [(id<MTL4CommandQueue>)params->queue waitForEvent:(id<MTLEvent>)params->event value:params->value];
+  }
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTL4CommandQueue_signalEvent(void *obj) {
+  struct unixcall_mtl4commandqueue_event *params = obj;
+  if (@available(macOS 26, *)) {
+    [(id<MTL4CommandQueue>)params->queue signalEvent:(id<MTLEvent>)params->event value:params->value];
+  }
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLDevice_newTemporalScalerMetal4(void *obj) {
+  struct unixcall_mtldevice_newfxtemporalscaler_metal4 *params = obj;
+  params->ret = 0;
+  if (@available(macOS 26, *)) {
+    MTLFXTemporalScalerDescriptor *desc = [[MTLFXTemporalScalerDescriptor alloc] init];
+    const struct WMTFXTemporalScalerInfo *info = params->info.ptr;
+    desc.colorTextureFormat = to_metal_pixel_format(info->color_format);
+    desc.outputTextureFormat = to_metal_pixel_format(info->output_format);
+    desc.depthTextureFormat = to_metal_pixel_format(info->depth_format);
+    desc.motionTextureFormat = to_metal_pixel_format(info->motion_format);
+    desc.inputWidth = info->input_width;
+    desc.inputHeight = info->input_height;
+    desc.outputWidth = info->output_width;
+    desc.outputHeight = info->output_height;
+    desc.inputContentMaxScale = info->input_content_max_scale;
+    desc.inputContentMinScale = info->input_content_min_scale;
+    desc.inputContentPropertiesEnabled = info->input_content_properties_enabled;
+    desc.autoExposureEnabled = info->auto_exposure;
+    desc.requiresSynchronousInitialization = info->requires_synchronous_initialization;
+    // MetalFX publishes no supported-format list, so this can still return nil
+    // for an unsupported combination. Callers treat nil as unavailable.
+    params->ret = (obj_handle_t)[desc newTemporalScalerWithDevice:(id<MTLDevice>)params->device
+                                                          compiler:(id<MTL4Compiler>)params->compiler];
+    [desc release];
+  }
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTL4CommandBuffer_encodeTemporalScale(void *obj) {
+  struct unixcall_mtlcommandbuffer_temporal_scale *params = obj;
+  if (@available(macOS 26, *)) {
+    id<MTL4CommandBuffer> cmdbuf = (id<MTL4CommandBuffer>)params->cmdbuf;
+    id<MTL4FXTemporalScaler> scaler = (id<MTL4FXTemporalScaler>)params->scaler;
+    // MTL4FXTemporalScaler refines MTLFXTemporalScalerBase, so these are the
+    // same properties the Metal 3 path sets.
+    scaler.colorTexture = (id<MTLTexture>)params->color;
+    scaler.outputTexture = (id<MTLTexture>)params->output;
+    scaler.depthTexture = (id<MTLTexture>)params->depth;
+    scaler.motionTexture = (id<MTLTexture>)params->motion;
+    scaler.exposureTexture = (id<MTLTexture>)params->exposure;
+    scaler.fence = (id<MTLFence>)params->fence;
+    const struct WMTFXTemporalScalerProps *props = params->props.ptr;
+    scaler.inputContentWidth = props->input_content_width;
+    scaler.inputContentHeight = props->input_content_height;
+    scaler.reset = props->reset;
+    scaler.depthReversed = props->depth_reversed;
+    scaler.motionVectorScaleX = props->motion_vector_scale_x;
+    scaler.motionVectorScaleY = props->motion_vector_scale_y;
+    scaler.jitterOffsetX = props->jitter_offset_x;
+    scaler.jitterOffsetY = props->jitter_offset_y;
+    scaler.preExposure = props->pre_exposure;
+    [scaler encodeToCommandBuffer:cmdbuf];
+  }
+  return STATUS_SUCCESS;
+}
+
 static NTSTATUS
 _NSString_string(void *obj) {
   struct unixcall_nsstring_string *params = obj;
@@ -3328,6 +3555,23 @@ const void *__wine_unix_call_funcs[] = {
     &_MTLDevice_newIndirectCommandBuffer,
     &_MTLDevice_newLibraryWithSource,
     &_MTLTexture_getBytes,
+    &_MTLDevice_supportsFXTemporalScalerMetal4,
+    &_MTLDevice_newMTL4Compiler,
+    &_MTLDevice_newMTL4CommandQueue,
+    &_MTLDevice_newMTL4CommandAllocator,
+    &_MTLDevice_newMTL4CommandBuffer,
+    &_MTL4CommandBuffer_beginCommandBuffer,
+    &_MTL4CommandBuffer_endCommandBuffer,
+    &_MTL4CommandBuffer_useResidencySet,
+    &_MTL4CommandBuffer_computeCommandEncoder,
+    &_MTL4CommandEncoder_waitForFence,
+    &_MTL4CommandEncoder_updateFence,
+    &_MTL4CommandEncoder_endEncoding,
+    &_MTL4CommandQueue_commit,
+    &_MTL4CommandQueue_waitForEvent,
+    &_MTL4CommandQueue_signalEvent,
+    &_MTLDevice_newTemporalScalerMetal4,
+    &_MTL4CommandBuffer_encodeTemporalScale,
 };
 
 #ifndef DXMT_NATIVE
@@ -3478,5 +3722,22 @@ const void *__wine_unix_call_wow64_funcs[] = {
     &_MTLDevice_newIndirectCommandBuffer,
     &_MTLDevice_newLibraryWithSource,
     &_MTLTexture_getBytes,
+    &_MTLDevice_supportsFXTemporalScalerMetal4,
+    &_MTLDevice_newMTL4Compiler,
+    &_MTLDevice_newMTL4CommandQueue,
+    &_MTLDevice_newMTL4CommandAllocator,
+    &_MTLDevice_newMTL4CommandBuffer,
+    &_MTL4CommandBuffer_beginCommandBuffer,
+    &_MTL4CommandBuffer_endCommandBuffer,
+    &_MTL4CommandBuffer_useResidencySet,
+    &_MTL4CommandBuffer_computeCommandEncoder,
+    &_MTL4CommandEncoder_waitForFence,
+    &_MTL4CommandEncoder_updateFence,
+    &_MTL4CommandEncoder_endEncoding,
+    &_MTL4CommandQueue_commit,
+    &_MTL4CommandQueue_waitForEvent,
+    &_MTL4CommandQueue_signalEvent,
+    &_MTLDevice_newTemporalScalerMetal4,
+    &_MTL4CommandBuffer_encodeTemporalScale,
 };
 #endif

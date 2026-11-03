@@ -33,7 +33,7 @@ CommandChunk::allocate_cpu_heap(size_t size, size_t alignment) {
   return queue->AllocateCommandData(size, alignment);
 }
 
-CommandQueue::CommandQueue(WMT::Device device) :
+CommandQueue::CommandQueue(WMT::Device device, Metal4Temporal *metal4_temporal) :
     encodeThread([this]() { this->EncodingThread(); }),
     finishThread([this]() { this->WaitForFinishThread(); }),
     device(device),
@@ -52,7 +52,7 @@ CommandQueue::CommandQueue(WMT::Device device) :
     cpu_command_allocator({}),
     reftracker_storage_allocator({}),
     cmd_library(device),
-    argument_encoding_ctx(*this, device, cmd_library),
+    argument_encoding_ctx(*this, device, cmd_library, metal4_temporal),
     initializer(device),
     counter_pool(device) {
   for (unsigned i = 0; i < kCommandChunkCount; i++) {

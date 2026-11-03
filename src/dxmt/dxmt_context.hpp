@@ -23,6 +23,7 @@
 #include "dxmt_command.hpp"
 #include "dxmt_command_clear.hpp"
 #include "dxmt_counter.hpp"
+#include "dxmt_metal4_temporal.hpp"
 #include "dxmt_deptrack.hpp"
 #include "dxmt_occlusion_query.hpp"
 #include "dxmt_presenter.hpp"
@@ -669,6 +670,11 @@ public:
 
   void upscale(Rc<Texture> &texture, Rc<Texture> &upscaled, Rc<SpatialScaler> &scaler);
 
+  // Metal 4 temporal upscale: encoded into an MTL4CommandBuffer on a second
+  // queue and ordered against this chunk's Metal 3 command buffer with
+  // MTLEvents. See the implementation for the two-event invariant.
+  void encodeTemporalUpscaleMetal4(WMT::CommandBuffer &cmdbuf, TemporalUpscaleData *data);
+
   void upscaleTemporal(
       Rc<Texture> &input, Rc<Texture> &output, Rc<Texture> &depth, Rc<Texture> &motion_vector, TextureViewKey mvViewId,
       Rc<Texture> &exposure, Rc<TemporalScaler> &scaler, const WMTFXTemporalScalerProps &props
@@ -823,7 +829,8 @@ public:
     intrapass_barrier_control_bits_ = control_bits;
   }
 
-  ArgumentEncodingContext(CommandQueue &queue, WMT::Device device, InternalCommandLibrary &lib);
+  ArgumentEncodingContext(CommandQueue &queue, WMT::Device device, InternalCommandLibrary &lib,
+                               Metal4Temporal *metal4_temporal = nullptr);
   ~ArgumentEncodingContext();
 
   uint32_t tess_num_output_control_point_element;
@@ -927,6 +934,9 @@ private:
   uint64_t intrapass_barrier_control_bits_ = 0;
 
   CommandQueue& queue_;
+  // Null unless this device supports temporal scaling through Metal 4. Owned by
+  // dxmt::Device, which outlives every encoding context.
+  Metal4Temporal *metal4_temporal_ = nullptr;
 };
 
 template <>

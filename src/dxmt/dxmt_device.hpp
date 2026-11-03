@@ -1,5 +1,6 @@
 #pragma once
 #include "dxmt_command_queue.hpp"
+#include "dxmt_metal4_temporal.hpp"
 #include <memory>
 
 namespace dxmt {
@@ -12,6 +13,7 @@ public:
   virtual CommandQueue& queue() = 0;
   virtual WMTMetalVersion metalVersion() = 0;
   virtual uint64_t maxObjectThreadgroups() = 0;
+  virtual Metal4Temporal &metal4Temporal() = 0;
 };
 
 struct DEVICE_DESC {

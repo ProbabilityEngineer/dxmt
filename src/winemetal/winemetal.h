@@ -1764,6 +1764,59 @@ WINEMETAL_API bool MTLDevice_supportsFXSpatialScaler(obj_handle_t device);
 
 WINEMETAL_API bool MTLDevice_supportsFXTemporalScaler(obj_handle_t device);
 
+// Metal 4 temporal upscaling.
+//
+// MTL4FXTemporalScaler refines MTLFXTemporalScalerBase, the same protocol
+// MTLFXTemporalScaler conforms to, so every scaler property is unchanged and
+// only the command buffer differs: an id<MTL4CommandBuffer>, which is created by
+// the device and committed to an id<MTL4CommandQueue>. Metal 3 has no path to
+// either type, so an encode has to own a Metal 4 queue beside the Metal 3 one.
+//
+// The two queue types are separate submission streams that share one device.
+// Apple documents adding signal and wait commands to any combination of them
+// ("you can add signal and wait commands to any combination of MTL4CommandQueue
+// and MTLCommandQueue instances that all belong to the same Metal device"), so a
+// Metal 4 scaler is ordered against ordinary D3D11 work with MTLEvents rather
+// than by merging the streams.
+//
+// Note that MTL4CommandBuffer exposes no CPU completion query; only the queue's
+// event API can observe it from the CPU.
+
+// [MTLFXTemporalScalerDescriptor supportsMetal4FX:] -- the capability query.
+WINEMETAL_API bool MTLDevice_supportsFXTemporalScalerMetal4(obj_handle_t device);
+
+// Device-scoped Metal 4 objects. All four are owned by the device and outlive
+// any single command buffer.
+WINEMETAL_API obj_handle_t MTLDevice_newMTL4Compiler(obj_handle_t device);
+WINEMETAL_API obj_handle_t MTLDevice_newMTL4CommandQueue(obj_handle_t device);
+WINEMETAL_API obj_handle_t MTLDevice_newMTL4CommandAllocator(obj_handle_t device);
+// [MTLDevice newCommandBuffer] -- the Metal 4 command buffer. The Metal 3 buffer
+// still comes from MTLCommandQueue_commandBuffer.
+WINEMETAL_API obj_handle_t MTLDevice_newMTL4CommandBuffer(obj_handle_t device);
+
+WINEMETAL_API void MTL4CommandBuffer_beginCommandBuffer(obj_handle_t cmdbuf, obj_handle_t allocator);
+WINEMETAL_API void MTL4CommandBuffer_endCommandBuffer(obj_handle_t cmdbuf);
+WINEMETAL_API void MTL4CommandBuffer_useResidencySet(obj_handle_t cmdbuf, obj_handle_t residency_set);
+// Only used to host fence wait/update: Metal 4 has no blit command encoder.
+WINEMETAL_API obj_handle_t MTL4CommandBuffer_computeCommandEncoder(obj_handle_t cmdbuf);
+WINEMETAL_API void MTL4CommandEncoder_waitForFence(obj_handle_t encoder, obj_handle_t fence, uint64_t stages);
+WINEMETAL_API void MTL4CommandEncoder_updateFence(obj_handle_t encoder, obj_handle_t fence, uint64_t stages);
+WINEMETAL_API void MTL4CommandEncoder_endEncoding(obj_handle_t encoder);
+
+WINEMETAL_API void MTL4CommandQueue_commit(obj_handle_t queue, const obj_handle_t *cmdbufs, uint64_t count);
+WINEMETAL_API void MTL4CommandQueue_waitForEvent(obj_handle_t queue, obj_handle_t event, uint64_t value);
+WINEMETAL_API void MTL4CommandQueue_signalEvent(obj_handle_t queue, obj_handle_t event, uint64_t value);
+
+// The Metal 4 temporal scaler, configured identically to MTLDevice_newTemporalScaler.
+WINEMETAL_API obj_handle_t MTLDevice_newTemporalScalerMetal4(
+    obj_handle_t device, obj_handle_t compiler, const struct WMTFXTemporalScalerInfo *info
+);
+
+WINEMETAL_API void MTL4CommandBuffer_encodeTemporalScale(
+    obj_handle_t cmdbuf, obj_handle_t scaler, obj_handle_t color, obj_handle_t output, obj_handle_t depth,
+    obj_handle_t motion, obj_handle_t exposure, obj_handle_t fence, const struct WMTFXTemporalScalerProps *props
+);
+
 struct WMTLayerProps {
   obj_handle_t device;
   double contents_scale;

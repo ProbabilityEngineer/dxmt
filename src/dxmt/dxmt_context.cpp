@@ -29,7 +29,8 @@
 
 namespace dxmt {
 
-ArgumentEncodingContext::ArgumentEncodingContext(CommandQueue &queue, WMT::Device device, InternalCommandLibrary &lib) :
+ArgumentEncodingContext::ArgumentEncodingContext(CommandQueue &queue, WMT::Device device, InternalCommandLibrary &lib,
+                                                Metal4Temporal *metal4_temporal) :
     device_(device),
     lib(lib),
     emulated_cmd(device, lib, *this),
@@ -39,7 +40,8 @@ ArgumentEncodingContext::ArgumentEncodingContext(CommandQueue &queue, WMT::Devic
     mv_scale_cmd(device, lib, *this),
     tile_barrier_cmd(device, lib, *this),
     timestamp_state_(device),
-    queue_(queue) {
+    queue_(queue),
+    metal4_temporal_(metal4_temporal) {
   dummy_sampler_info_.support_argument_buffers = true;
   dummy_sampler_info_.border_color = WMTSamplerBorderColorTransparentBlack;
   dummy_sampler_info_.compare_function = WMTCompareFunctionNever;
@@ -585,6 +587,56 @@ ArgumentEncodingContext::upscaleTemporal(
     encoder_info->exposure = access(exposure, exposure->fullView, ResourceAccess::Read).texture;
   }
   endPass();
+}
+
+void
+ArgumentEncodingContext::encodeTemporalUpscaleMetal4(WMT::CommandBuffer &cmdbuf, TemporalUpscaleData *data) {
+  auto &metal4 = *metal4_temporal_;
+  auto allocator = device_.newMTL4CommandAllocator();
+  auto metal4_cmdbuf = device_.newMTL4CommandBuffer();
+  WMT::Error error;
+  auto residency = device_.newResidencySet(5, error);
+  if (!allocator || !metal4_cmdbuf || !residency) {
+    ERR("MetalFX 4: failed to allocate command buffer, allocator or residency set");
+    return;
+  }
+
+  // Metal 4 does not retain its resources. Retire its objects with the owning
+  // Metal 3 chunk, whose completion follows the done-event wait below.
+  queue_.Retain(seq_id_, WMT::Object(allocator.handle));
+  queue_.Retain(seq_id_, WMT::Object(metal4_cmdbuf.handle));
+  queue_.Retain(seq_id_, WMT::Object(residency.handle));
+  WMT::Allocation allocations[] = {data->input, data->output, data->depth, data->motion_vector, data->exposure};
+  residency.addAllocations(allocations, data->exposure ? 5 : 4);
+  residency.commit();
+
+  // Keep DXMT's resource dependency fences on the Metal 3 stream. MTLFence
+  // cannot synchronize different queues; the two distinct events do that.
+  auto begin = cmdbuf.blitCommandEncoder();
+  data->fence_wait.forEach([&](auto id) { begin.waitForFence(fence_pool_[id]); });
+  begin.endEncoding();
+  const uint64_t value = metal4.next_value();
+  cmdbuf.encodeSignalEvent(metal4.scene_event(), value);
+  cmdbuf.encodeWaitForEvent(metal4.done_event(), value);
+  metal4.queue().waitForEvent(metal4.scene_event(), value);
+
+  metal4_cmdbuf.beginCommandBuffer(allocator);
+  metal4_cmdbuf.useResidencySet(residency);
+  auto fence_host = metal4_cmdbuf.computeCommandEncoder();
+  fence_host.updateFence(data->scaler->fence(), (1ull << 27) | (1ull << 28));
+  fence_host.endEncoding();
+  metal4_cmdbuf.encodeTemporalScale(
+      data->scaler->scaler(), data->input, data->output, data->depth, data->motion_vector, data->exposure,
+      data->scaler->fence(), data->props
+  );
+  metal4_cmdbuf.endCommandBuffer();
+  WMT::MTL4CommandBuffer batch[] = {metal4_cmdbuf};
+  metal4.queue().commit(batch, 1);
+  metal4.queue().signalEvent(metal4.done_event(), value);
+
+  auto end = cmdbuf.blitCommandEncoder();
+  data->fence_update.forEach([&](auto id) { end.updateFence(fence_pool_[id]); });
+  end.endEncoding();
 }
 
 void
@@ -1194,6 +1246,12 @@ ArgumentEncodingContext::flushCommands(WMT::CommandBuffer cmdbuf, uint64_t seqId
     }
     case EncoderType::TemporalUpscale: {
       auto data = static_cast<TemporalUpscaleData *>(current);
+
+      if (data->scaler->generation() == FXGeneration::Metal4) {
+        encodeTemporalUpscaleMetal4(cmdbuf, data);
+        data->~TemporalUpscaleData();
+        break;
+      }
 
       auto begin_scaler = cmdbuf.blitCommandEncoder();
       begin_scaler.setLabel(WMT::String::string("BeginScaler", WMTUTF8StringEncoding));
