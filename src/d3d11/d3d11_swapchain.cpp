@@ -766,6 +766,10 @@ public:
       device_context_->Commit();
       return hr;
     }
+    // Everything recorded before Present goes to the GPU in its own command buffer. The present's chunk blocks the
+    // encode thread in nextDrawable() until a display buffer is free, and any work sharing that chunk waited with it
+    // while the GPU sat idle: a frame's upscale and composite landing there cost a whole display interval.
+    device_context_->Commit();
 
     double vsync_duration =
         std::max(SyncInterval * 1.0 /
