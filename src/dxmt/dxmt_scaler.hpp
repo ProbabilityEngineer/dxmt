@@ -36,7 +36,7 @@ private:
 // id<MTL4CommandBuffer> committed to an id<MTL4CommandQueue>.
 //
 // The values mirror MTL_FX_GENERATION in the D3D11 vendor extension, which is
-// what a caller passes to IMTLD3D11ContextExt2::TemporalUpscaleEx. Metal3 is 0
+// what a caller passes to IMTLD3D11ContextExt3::TemporalUpscaleEx. Metal3 is 0
 // there so an unspecified generation means Metal 3, and must stay 0 here: the
 // implementation converts between the two enums directly when keying the
 // scaler cache.

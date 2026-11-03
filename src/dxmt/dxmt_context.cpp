@@ -611,7 +611,8 @@ ArgumentEncodingContext::upscale(Rc<Texture> &texture, Rc<Texture> &upscaled, Rc
 void
 ArgumentEncodingContext::upscaleTemporal(
     Rc<Texture> &input, Rc<Texture> &output, Rc<Texture> &depth, Rc<Texture> &motion_vector, TextureViewKey mvViewId,
-    Rc<Texture> &exposure, Rc<TemporalScaler> &scaler, const WMTFXTemporalScalerProps &props
+    Rc<Texture> &exposure, Rc<TemporalScaler> &scaler, const WMTFXTemporalScalerProps &props,
+    const Metal4TemporalRequest &request
 ) {
   assert(!encoder_current);
   auto encoder_info = allocate<TemporalUpscaleData>();
@@ -621,6 +622,7 @@ ArgumentEncodingContext::upscaleTemporal(
   encoder_info->fence_update = {encoder_info->id};
   encoder_info->scaler = scaler;
   encoder_info->props = props;
+  encoder_info->request = request;
 
   encoder_current = encoder_info;
   encoder_info->input = access(input, input->fullView, ResourceAccess::Read).texture;
@@ -636,14 +638,12 @@ ArgumentEncodingContext::upscaleTemporal(
 void
 ArgumentEncodingContext::encodeTemporalUpscaleMetal4(WMT::CommandBuffer &cmdbuf, TemporalUpscaleData *data) {
   auto &metal4 = *metal4_temporal_;
-  auto allocator = device_.newMTL4CommandAllocator();
-  auto metal4_cmdbuf = device_.newMTL4CommandBuffer();
-  WMT::Error error;
-  auto residency = device_.newResidencySet(5, error);
-  if (!allocator || !metal4_cmdbuf || !residency) {
-    ERR("MetalFX 4: failed to allocate command buffer, allocator or residency set");
-    return;
-  }
+  auto &allocator = data->request.allocator;
+  auto &metal4_cmdbuf = data->request.command_buffer;
+  auto &residency = data->request.residency;
+  // Prepared before the immediate-context API reports acceptance. There is no
+  // late allocation/refusal path that can silently leave stale output behind.
+  assert(allocator && metal4_cmdbuf && residency);
 
   // Metal 4 does not retain its resources. Retire its objects with the owning
   // Metal 3 chunk, whose completion follows the done-event wait below.
@@ -664,11 +664,7 @@ ArgumentEncodingContext::encodeTemporalUpscaleMetal4(WMT::CommandBuffer &cmdbuf,
   cmdbuf.encodeWaitForEvent(metal4.done_event(), value);
   metal4.queue().waitForEvent(metal4.scene_event(), value);
 
-  metal4_cmdbuf.beginCommandBuffer(allocator);
   metal4_cmdbuf.useResidencySet(residency);
-  auto fence_host = metal4_cmdbuf.computeCommandEncoder();
-  fence_host.updateFence(data->scaler->fence(), (1ull << 27) | (1ull << 28));
-  fence_host.endEncoding();
   metal4_cmdbuf.encodeTemporalScale(
       data->scaler->scaler(), data->input, data->output, data->depth, data->motion_vector, data->exposure,
       data->scaler->fence(), data->props

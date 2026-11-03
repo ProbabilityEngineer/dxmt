@@ -38,7 +38,7 @@ DEFINE_COM_INTERFACE("43ace3ce-1956-448b-a4eb-aee68bdeb283",
 // command buffer it encodes into -- a Metal 3 command buffer, or for MetalFX 4
 // an id<MTL4CommandBuffer> committed to an id<MTL4CommandQueue>.
 //
-// It is passed as a separate argument to IMTLD3D11ContextExt2 rather than added
+// It is passed as a separate argument to IMTLD3D11ContextExt3 rather than added
 // to MTL_TEMPORAL_UPSCALE_D3D11_DESC, which leaves that struct byte-for-byte as
 // it always was. A descriptor is passed by pointer, so growing it would force
 // every already-compiled caller to be rebuilt and would read past the end of an
@@ -66,19 +66,20 @@ DEFINE_COM_INTERFACE("19a8e35a-38be-418f-94e3-9f7323936870", IMTLD3D11ContextExt
   ) = 0;
 };
 
-DEFINE_COM_INTERFACE("6523d273-9915-44b3-a5f0-f69a654da1f8", IMTLD3D11ContextExt2) : public IMTLD3D11ContextExt1 {
-   // Same as IMTLD3D11ContextExt::TemporalUpscale, with the scaler generation
-   // chosen explicitly. Both generations share one descriptor and one
-   // implementation; only the scaler object and the command buffer it encodes
-   // into differ, and a caller may use either in the same session.
-   //
-   // Requesting MTL_FX_GENERATION_METAL4 never falls back to MetalFX 3. If MetalFX
-   // 4 is unavailable, or if the scaler cannot be created for the requested
-   // formats and sizes, this call reports the failure and does nothing -- the
-   // output texture is left untouched. Callers should query
-   // MTL_FEATURE_METALFX_TEMPORAL_SCALER_METAL4 first. Silently substituting
-   // MetalFX 3 would make the caller's validation and A/B comparison meaningless.
-   virtual void STDMETHODCALLTYPE TemporalUpscaleEx(
+// Replaces the private void-returning Ext2 contract. Its old IID is deliberately
+// not exposed: mixing old/new DLLs must fail QueryInterface, not read an
+// undefined return register as a status.
+DEFINE_COM_INTERFACE("e6fc275c-395c-4134-afaf-5826ddc07e4e", IMTLD3D11ContextExt3) : public IMTLD3D11ContextExt1 {
+   // Immediate contexts only. S_OK means the request was accepted, with scaler,
+   // fence and explicit Metal 4 per-request allocations prepared. It does NOT
+   // mean GPU completion or verified pixels. No CPU/GPU wait is introduced.
+   // Failure queues no upscale and leaves Output untouched by this request.
+   // E_INVALIDARG: missing/invalid resources, extent or generation.
+   // DXGI_ERROR_UNSUPPORTED: requested generation unavailable.
+   // E_OUTOFMEMORY: fence or Metal 4 request allocation failed.
+   // E_FAIL: native initialization/scaler creation failed.
+   // The requested generation is never silently substituted.
+   virtual HRESULT STDMETHODCALLTYPE TemporalUpscaleEx(
        const MTL_TEMPORAL_UPSCALE_D3D11_DESC *pDesc, MTL_FX_GENERATION FxGeneration
    ) = 0;
 };

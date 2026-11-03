@@ -8,14 +8,17 @@ Existing `IMTLD3D11ContextExt::TemporalUpscale` calls still use MetalFX 3. The
 88-byte descriptor, existing feature value, configuration keys and spatial
 upscaling path are unchanged. No presentation or refresh-rate code is changed.
 
-A client opts into MetalFX 4 by querying `IMTLD3D11ContextExt2` and checking
+A client opts into MetalFX 4 by querying `IMTLD3D11ContextExt3` and checking
 `MTL_FEATURE_METALFX_TEMPORAL_SCALER_METAL4`, then calling `TemporalUpscaleEx`
 with `MTL_FX_GENERATION_METAL4`. MetalFX 3 remains available through either the
 legacy entry point or `TemporalUpscaleEx` with `MTL_FX_GENERATION_METAL3`.
 Clients should use MetalFX 3 when the MetalFX 4 capability is unavailable.
 An explicit MetalFX 4 request is never silently substituted with MetalFX 3;
-unavailable capability or failed scaler creation logs an error and leaves the
-output untouched. EDVR integration and in-game validation are separate work.
+unavailable capability or failed scaler creation returns a failing `HRESULT`
+and leaves the output untouched. `S_OK` means CPU-side request acceptance,
+not GPU completion or verified output. The old private Ext2 IID is no longer
+exposed; rebuild the matching client. See [METALFX_STATUS.md](METALFX_STATUS.md)
+for the contract, preparation/lifetime changes and validation limits.
 
 The Metal 4 queue is synchronized to the Metal 3 stream with two distinct events.
 DXMT's resource dependency fences remain on the Metal 3 stream. Each Metal 4

@@ -30,6 +30,7 @@
 #include "dxmt_residency.hpp"
 #include "dxmt_sampler.hpp"
 #include "dxmt_scaler.hpp"
+#include "dxmt_metal4_temporal_request.hpp"
 #include "dxmt_statistics.hpp"
 #include "dxmt_texture.hpp"
 #include "log/log.hpp"
@@ -284,6 +285,7 @@ struct TemporalUpscaleData : EncoderData {
   WMT::Reference<WMT::Texture> exposure;
   Rc<TemporalScaler> scaler;
   WMTFXTemporalScalerProps props;
+  Metal4TemporalRequest request;
 };
 
 template <PipelineKind kind>
@@ -684,7 +686,8 @@ public:
 
   void upscaleTemporal(
       Rc<Texture> &input, Rc<Texture> &output, Rc<Texture> &depth, Rc<Texture> &motion_vector, TextureViewKey mvViewId,
-      Rc<Texture> &exposure, Rc<TemporalScaler> &scaler, const WMTFXTemporalScalerProps &props
+      Rc<Texture> &exposure, Rc<TemporalScaler> &scaler, const WMTFXTemporalScalerProps &props,
+      const Metal4TemporalRequest &request
   );
 
   void signalEvent(uint64_t value);

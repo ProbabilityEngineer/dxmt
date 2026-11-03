@@ -28,7 +28,7 @@
 // MTL_TEMPORAL_UPSCALE_D3D11_DESC is untouched.
 //
 // The generation is NOT a field here. It is an argument to
-// IMTLD3D11ContextExt2::TemporalUpscaleEx precisely so that this struct stays
+// IMTLD3D11ContextExt3::TemporalUpscaleEx precisely so that this struct stays
 // byte-for-byte as it always was: a descriptor is passed by pointer, so growing
 // it would read past the end of an already-compiled caller's allocation and
 // would force every out-of-tree caller to be rebuilt. These offsets and the size
@@ -76,12 +76,16 @@ static_assert(static_cast<int>(MTL_FEATURE_METALFX_TEMPORAL_SCALER_METAL4) == 1,
               "the MetalFX 4 feature is appended");
 
 // ---------------------------------------------------------------------------
-// Interface revisions. IMTLD3D11ContextExt2 refines Ext1, so a caller that only
+// Interface revisions. IMTLD3D11ContextExt3 refines Ext1, so a caller that only
 // knows Ext1 is unaffected and an older DXMT simply does not answer the new IID
 // -- which is the clean, detectable "old DXMT" condition.
 // ---------------------------------------------------------------------------
-static_assert(std::is_base_of<IMTLD3D11ContextExt1, IMTLD3D11ContextExt2>::value,
-              "Ext2 must extend Ext1 so capability discovery is unchanged");
+static_assert(std::is_base_of<IMTLD3D11ContextExt1, IMTLD3D11ContextExt3>::value,
+              "Ext3 retains Ext1's feature-query slots");
+static_assert(std::is_same<decltype(&IMTLD3D11ContextExt3::TemporalUpscaleEx),
+              HRESULT (STDMETHODCALLTYPE IMTLD3D11ContextExt3::*)(
+                  const MTL_TEMPORAL_UPSCALE_D3D11_DESC*, MTL_FX_GENERATION)>::value,
+              "the coordinated private interface returns request acceptance");
 
 namespace {
 

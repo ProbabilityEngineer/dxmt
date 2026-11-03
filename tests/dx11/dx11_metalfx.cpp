@@ -26,8 +26,24 @@ int main() {
     wchar_t path[1024] = {}; GetModuleFileNameW(GetModuleHandleW(name),path,1024);
     std::printf("MODULE %ls\n",path);
   }
-  IMTLD3D11ContextExt2 *ext;
-  check(ctx->QueryInterface(__uuidof(IMTLD3D11ContextExt2),(void**)&ext),"Ext2");
+  IMTLD3D11ContextExt3 *ext;
+  check(ctx->QueryInterface(__uuidof(IMTLD3D11ContextExt3),(void**)&ext),"Ext3 status interface");
+  const GUID old_ext2 = {0x6523d273,0x9915,0x44b3,{0xa5,0xf0,0xf6,0x9a,0x65,0x4d,0xa1,0xf8}};
+  void* retired = nullptr;
+  if (ctx->QueryInterface(old_ext2, &retired) != E_NOINTERFACE || retired) return 8;
+  MTL_TEMPORAL_UPSCALE_D3D11_DESC invalid{};
+  if (ext->TemporalUpscaleEx(nullptr, MTL_FX_GENERATION_METAL4) != E_INVALIDARG ||
+      ext->TemporalUpscaleEx(&invalid, MTL_FX_GENERATION_METAL3) != E_INVALIDARG ||
+      ext->TemporalUpscaleEx(&invalid, static_cast<MTL_FX_GENERATION>(99)) != E_INVALIDARG)
+    return 6;
+  ID3D11DeviceContext *deferred = nullptr;
+  check(dev->CreateDeferredContext(0, &deferred), "deferred context");
+  IMTLD3D11ContextExt3 *deferred_ext = nullptr;
+  check(deferred->QueryInterface(__uuidof(IMTLD3D11ContextExt3), (void**)&deferred_ext), "deferred Ext3");
+  if (deferred_ext->TemporalUpscaleEx(&invalid, MTL_FX_GENERATION_METAL4) != DXGI_ERROR_INVALID_CALL)
+    return 7;
+  deferred_ext->Release();
+  deferred->Release();
   for (auto feature : {MTL_FEATURE_METALFX_TEMPORAL_SCALER,MTL_FEATURE_METALFX_TEMPORAL_SCALER_METAL4}) {
     BOOL supported = FALSE; check(ext->CheckFeatureSupport(feature,&supported,sizeof(supported)),"feature query");
     std::printf("CAP MetalFX%d=%d\n",int(feature)+3,int(supported));
@@ -68,8 +84,8 @@ int main() {
       d.AutoExposure=mode<3;d.InReset=TRUE;d.Color=color;d.Output=output;d.Depth=depth;
       d.MotionVectorInDisplayRes=mode>=3;d.MotionVector=d.MotionVectorInDisplayRes?mvhi:mv;
       d.MotionVectorScaleX=d.MotionVectorScaleY=1;d.PreExposure=1;d.ExposureTexture=d.AutoExposure?nullptr:exposure;
-      if(mode%3==1) ext->TemporalUpscaleEx(&d,MTL_FX_GENERATION_METAL4);
-      else if(mode%3==2) ext->TemporalUpscaleEx(&d,MTL_FX_GENERATION_METAL3);
+      if(mode%3==1) check(ext->TemporalUpscaleEx(&d, MTL_FX_GENERATION_METAL4), "temporal request acceptance");
+      else if(mode%3==2) check(ext->TemporalUpscaleEx(&d, MTL_FX_GENERATION_METAL3), "temporal request acceptance");
       else ext->TemporalUpscale(&d);
       ctx->CopyResource(readback,output);
       D3D11_MAPPED_SUBRESOURCE map;check(ctx->Map(readback,0,D3D11_MAP_READ,0,&map),"Map scaler output");

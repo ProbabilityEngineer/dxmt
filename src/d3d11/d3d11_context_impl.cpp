@@ -646,7 +646,7 @@ public:
     }
 
     if (riid == __uuidof(IMTLD3D11ContextExt) || riid == __uuidof(IMTLD3D11ContextExt1) ||
-        riid == __uuidof(IMTLD3D11ContextExt2)) {
+        riid == __uuidof(IMTLD3D11ContextExt3)) {
       *ppvObject = ref(&ext_);
       return S_OK;
     }
@@ -5388,7 +5388,7 @@ public:
 };
 
 template <typename ContextInternalState>
-class MTLD3D11ContextExt : public IMTLD3D11ContextExt2 {
+class MTLD3D11ContextExt : public IMTLD3D11ContextExt3 {
   class CachedTemporalScaler {
   public:
     WMTPixelFormat color_pixel_format;
@@ -5449,15 +5449,35 @@ public:
     temporalUpscale(pDesc, MTL_FX_GENERATION_METAL3);
   }
 
-  void STDMETHODCALLTYPE
+  HRESULT STDMETHODCALLTYPE
   TemporalUpscaleEx(const MTL_TEMPORAL_UPSCALE_D3D11_DESC *pDesc, MTL_FX_GENERATION FxGeneration) final {
-    temporalUpscale(pDesc, FxGeneration);
+    if (ctx_->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE)
+      return DXGI_ERROR_INVALID_CALL;
+    return temporalUpscale(pDesc, FxGeneration);
   }
 
-  void temporalUpscale(const MTL_TEMPORAL_UPSCALE_D3D11_DESC *pDesc, MTL_FX_GENERATION FxGeneration) {
+  HRESULT temporalUpscale(const MTL_TEMPORAL_UPSCALE_D3D11_DESC *pDesc, MTL_FX_GENERATION FxGeneration) {
     std::lock_guard<typename ContextInternalState::device_mutex_t> lock(ctx_->mutex);
-    if (!pDesc || (FxGeneration != MTL_FX_GENERATION_METAL3 && FxGeneration != MTL_FX_GENERATION_METAL4))
-      return;
+    if (!pDesc || !pDesc->Color || !pDesc->Output || !pDesc->Depth || !pDesc->MotionVector ||
+        pDesc->Color == pDesc->Output || pDesc->Depth == pDesc->Output ||
+        pDesc->MotionVector == pDesc->Output || pDesc->ExposureTexture == pDesc->Output ||
+        (FxGeneration != MTL_FX_GENERATION_METAL3 && FxGeneration != MTL_FX_GENERATION_METAL4))
+      return E_INVALIDARG;
+    // Reject foreign-device resources and non-textures before the internal
+    // DXMT resource cast. A malformed private request must not crash the host.
+    for (auto* resource : {pDesc->Color, pDesc->Output, pDesc->Depth, pDesc->MotionVector, pDesc->ExposureTexture}) {
+      if (!resource) continue;
+      D3D11_RESOURCE_DIMENSION dimension;
+      resource->GetType(&dimension);
+      if (dimension != D3D11_RESOURCE_DIMENSION_TEXTURE2D)
+        return E_INVALIDARG;
+      ID3D11Device* owner = nullptr;
+      resource->GetDevice(&owner);
+      const bool same_device = owner == static_cast<ID3D11Device*>(ctx_->device);
+      if (owner) owner->Release();
+      if (!same_device)
+        return E_INVALIDARG;
+    }
     ctx_->UseResource(pDesc->Color);
     ctx_->UseResource(pDesc->Output);
     ctx_->UseResource(pDesc->Depth);
@@ -5465,20 +5485,25 @@ public:
     ctx_->UseResource(pDesc->ExposureTexture);
     Rc<Texture> input, output, depth, motion_vector, exposure;
     if (!(input = static_cast<D3D11ResourceCommon *>(pDesc->Color)->texture()))
-      return;
+      return E_INVALIDARG;
     if (!(output = static_cast<D3D11ResourceCommon *>(pDesc->Output)->texture()))
-      return;
+      return E_INVALIDARG;
     if (!(depth = static_cast<D3D11ResourceCommon *>(pDesc->Depth)->texture()))
-      return;
+      return E_INVALIDARG;
     if (!(motion_vector = static_cast<D3D11ResourceCommon *>(pDesc->MotionVector)->texture()))
-      return;
+      return E_INVALIDARG;
     if (pDesc->ExposureTexture && !(exposure = static_cast<D3D11ResourceCommon *>(pDesc->ExposureTexture)->texture()))
-      return;
+      return E_INVALIDARG;
+
+    const UINT content_width = pDesc->InputContentWidth ? pDesc->InputContentWidth : input->width();
+    const UINT content_height = pDesc->InputContentHeight ? pDesc->InputContentHeight : input->height();
+    if (content_width > input->width() || content_height > input->height())
+      return E_INVALIDARG;
 
     WMTPixelFormat motion_vector_format = GetCorrectMotionVectorFormat(motion_vector->pixelFormat());
     if (motion_vector_format == WMTPixelFormatInvalid) {
       ERR("TemporalUpscale: invalid motion vector format ", motion_vector->pixelFormat());
-      return;
+      return E_INVALIDARG;
     }
 
     Rc<TemporalScaler> scaler;
@@ -5540,10 +5565,12 @@ public:
       auto &metal4 = ctx_->device->GetDXMTDevice().metal4Temporal();
       const auto requested_generation = (dxmt::FXGeneration)FxGeneration;
       if (requested_generation == FXGeneration::Metal4) {
+        if (!metal4.available())
+          return DXGI_ERROR_UNSUPPORTED;
         if (!metal4.initialize()) {
           ERR("TemporalUpscale: MetalFX 4 was requested but is unavailable on this device; query "
               "MTL_FEATURE_METALFX_TEMPORAL_SCALER_METAL4 before requesting it");
-          return;
+          return E_FAIL;
         }
         scaler_entry.scaler = new TemporalScaler(ctx_->device->GetMTLDevice(), info, FXGeneration::Metal4,
                                                  metal4.compiler());
@@ -5553,11 +5580,17 @@ public:
           // result would encode nothing and leave the output untouched with no
           // diagnostic. Refuse instead.
           ERR("TemporalUpscale: MetalFX 4 scaler creation returned nil for this format/size combination");
-          return;
+          return E_FAIL;
         }
       } else {
+        if (!ctx_->device->GetMTLDevice().supportsFXTemporalScaler())
+          return DXGI_ERROR_UNSUPPORTED;
         scaler_entry.scaler = new TemporalScaler(ctx_->device->GetMTLDevice(), info);
       }
+      if (!scaler_entry.scaler->scaler())
+        return E_FAIL;
+      if (!scaler_entry.scaler->fence())
+        return E_OUTOFMEMORY;
       // Key the cache by what was actually created, never by what was asked
       // for, so the two cannot disagree about which generation an entry holds.
       scaler_entry.fx_generation = scaler_entry.scaler->generation();
@@ -5585,15 +5618,21 @@ public:
       // as they are not expected to be created frequently
     }
 
+    Metal4TemporalRequest request;
+    if (FxGeneration == MTL_FX_GENERATION_METAL4 &&
+        !request.prepare(ctx_->device->GetMTLDevice(), scaler->fence())) {
+      ERR("TemporalUpscale: MetalFX 4 per-request allocation failed; no upscale queued");
+      return E_OUTOFMEMORY;
+    }
     ctx_->InvalidateCurrentPass();
     ctx_->EmitOP([input = std::move(input), output = std::move(output),
                   depth = std::move(depth),
                   motion_vector = std::move(motion_vector),
-                  exposure = std::move(exposure), scaler = std::move(scaler),
+                  exposure = std::move(exposure), scaler = std::move(scaler), request = std::move(request),
                   props =
                       WMTFXTemporalScalerProps{
-                          pDesc->InputContentWidth,
-                          pDesc->InputContentHeight,
+                          content_width,
+                          content_height,
                           (bool)pDesc->InReset,
                           (bool)pDesc->DepthReversed,
                           pDesc->MotionVectorScaleX,
@@ -5628,11 +5667,12 @@ public:
         WMTFXTemporalScalerProps new_props = props;
         new_props.motion_vector_scale_x = 1.0;
         new_props.motion_vector_scale_y = 1.0;
-        enc.upscaleTemporal(input, output, depth, mv_downscaled, mv_downscaled->fullView, exposure, scaler, new_props);
+        enc.upscaleTemporal(input, output, depth, mv_downscaled, mv_downscaled->fullView, exposure, scaler, new_props, request);
       } else {
-        enc.upscaleTemporal(input, output, depth, motion_vector, mv_view, exposure, scaler, props);
+        enc.upscaleTemporal(input, output, depth, motion_vector, mv_view, exposure, scaler, props, request);
       }
     });
+    return S_OK;
   }
 
   void STDMETHODCALLTYPE BeginUAVOverlap() final {
