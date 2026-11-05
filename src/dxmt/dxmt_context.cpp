@@ -673,6 +673,7 @@ ArgumentEncodingContext::encodeTemporalUpscaleMetal4(WMT::CommandBuffer &cmdbuf,
   WMT::MTL4CommandBuffer batch[] = {metal4_cmdbuf};
   metal4.queue().commit(batch, 1);
   metal4.queue().signalEvent(metal4.done_event(), value);
+  queue_.RecordMetal4Submission(seq_id_, data->exposure ? 5 : 4);
 
   auto end = cmdbuf.blitCommandEncoder();
   data->fence_update.forEach([&](auto id) { end.updateFence(fence_pool_[id]); });

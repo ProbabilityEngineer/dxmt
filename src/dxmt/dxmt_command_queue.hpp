@@ -18,6 +18,7 @@
  */
 
 #pragma once
+#include "dxmt_metal4_memory_diagnostics.hpp"
 
 #include "Metal.hpp"
 #include "dxmt_allocation.hpp"
@@ -128,6 +129,8 @@ public:
   uint64_t signal_frame_latency_fence_;
   QueryReadbacks readback;
   std::vector<WMT::Reference<WMT::Object>> metal4_objects;
+  uint64_t metal4_request_count = 0;
+  uint64_t metal4_resource_bindings = 0;
   uint64_t resource_initializer_event_id;
 
 private:
@@ -151,6 +154,8 @@ public:
     attached_cmdbuf = nullptr;
     buffer_residency_set_ = nullptr;
     metal4_objects.clear();
+    metal4_request_count = 0;
+    metal4_resource_bindings = 0;
     ref_tracker.clear();
   }
 };
@@ -322,7 +327,20 @@ public:
 
   void Retain(uint64_t seq, WMT::Object object) {
     chunks[seq % kCommandChunkCount].metal4_objects.emplace_back(object);
+    metal4_memory.retained_objects.fetch_add(1, std::memory_order_relaxed);
   }
+
+  Metal4MemoryDiagnostics metal4_memory;
+
+  void RecordMetal4Submission(uint64_t seq, uint64_t bindings) {
+    auto &chunk = chunks[seq % kCommandChunkCount];
+    chunk.metal4_request_count++;
+    chunk.metal4_resource_bindings += bindings;
+    metal4_memory.resource_bindings.fetch_add(bindings, std::memory_order_relaxed);
+    metal4_memory.submitted.fetch_add(1, std::memory_order_relaxed);
+  }
+
+  void ReportMetal4Memory();
 };
 
 } // namespace dxmt

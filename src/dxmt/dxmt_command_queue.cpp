@@ -23,6 +23,7 @@
 #include "util_env.hpp"
 #include "util_win32_compat.h"
 #include <atomic>
+#include <chrono>
 
 #define ASYNC_ENCODING 1
 
@@ -160,6 +161,7 @@ CommandQueue::CommitChunkInternal(CommandChunk &chunk, uint64_t seq) {
   chunk.encode(chunk.attached_cmdbuf, this->argument_encoding_ctx);
   chunk.buffer_residency_set_ = this->argument_encoding_ctx.finalizeBufferResidency(cmdbuf);
   cmdbuf.commit();
+  metal4_memory.chunks_submitted.fetch_add(1, std::memory_order_relaxed);
 
   ready_for_commit.fetch_add(1, std::memory_order_release);
   ready_for_commit.notify_one();
@@ -199,6 +201,7 @@ CommandQueue::WaitForFinishThread() {
       chunk.attached_cmdbuf.waitUntilCompleted();
     }
     if (chunk.attached_cmdbuf.status() == WMTCommandBufferStatusError) {
+      metal4_memory.error_chunks.fetch_add(1, std::memory_order_relaxed);
       ERR("Device error at frame ", chunk.frame_, ": ", chunk.attached_cmdbuf.error().description().getUTF8String());
     }
     if (auto logs = chunk.attached_cmdbuf.logs()) {
@@ -210,7 +213,15 @@ CommandQueue::WaitForFinishThread() {
     if (chunk.signal_frame_latency_fence_ != ~0ull)
       frame_latency_fence_.signal(chunk.signal_frame_latency_fence_);
 
+    const auto requests = chunk.metal4_request_count;
+    const auto bindings = chunk.metal4_resource_bindings;
+    const auto objects = chunk.metal4_objects.size();
     chunk.reset();
+    metal4_memory.retained_objects.fetch_sub(objects, std::memory_order_relaxed);
+    metal4_memory.resource_bindings.fetch_sub(bindings, std::memory_order_relaxed);
+    metal4_memory.completed.fetch_add(requests, std::memory_order_relaxed);
+    metal4_memory.chunks_completed.fetch_add(1, std::memory_order_relaxed);
+    ReportMetal4Memory();
     cpu_coherent.signal(internal_seq);
     chunk_ongoing.fetch_sub(1, std::memory_order_release);
     chunk_ongoing.notify_one();
@@ -234,5 +245,40 @@ void CommandQueue::Retain(uint64_t seq, Allocation* allocation) {
     tracker.addStorage(temp_buffer.ptr, block_size);
   }
 };
+
+void
+CommandQueue::ReportMetal4Memory() {
+  if (!metal4_memory.accepted.load(std::memory_order_relaxed))
+    return;
+  const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now().time_since_epoch()).count();
+  const auto report = metal4_memory.claimReport(static_cast<uint64_t>(ms));
+  if (report == Metal4MemoryDiagnostics::Report::Skip)
+    return;
+  if (report == Metal4MemoryDiagnostics::Report::Limit) {
+    Logger::info(str::format("MetalFX-memory queue=", reinterpret_cast<uintptr_t>(this),
+                            " report-limit reached; further samples suppressed"));
+    return;
+  }
+  const auto accepted = metal4_memory.accepted.load(std::memory_order_relaxed);
+  const auto submitted = metal4_memory.submitted.load(std::memory_order_relaxed);
+  const auto completed = metal4_memory.completed.load(std::memory_order_relaxed);
+  const auto chunks_submitted = metal4_memory.chunks_submitted.load(std::memory_order_relaxed);
+  const auto chunks_completed = metal4_memory.chunks_completed.load(std::memory_order_relaxed);
+  Logger::info(str::format(
+      "MetalFX-memory queue=", reinterpret_cast<uintptr_t>(this), " monotonic-ms=", ms,
+      " snapshot=approx post-retirement=1",
+      " accepted=", accepted, " submitted=", submitted, " retired=", completed,
+      " pending-encode=", Metal4MemoryDiagnostics::pending(accepted, submitted),
+      " pending-retirement=", Metal4MemoryDiagnostics::pending(submitted, completed),
+      " all-chunks-submitted=", chunks_submitted, " all-chunks-retired=", chunks_completed,
+      " all-chunks-pending=", Metal4MemoryDiagnostics::pending(chunks_submitted, chunks_completed),
+      " all-chunks-errors=", metal4_memory.error_chunks.load(std::memory_order_relaxed),
+      " retained-metal4-object-refs=", metal4_memory.retained_objects.load(std::memory_order_relaxed),
+      " retained-resource-bindings=", metal4_memory.resource_bindings.load(std::memory_order_relaxed),
+      " scaler-cache-entries=", metal4_memory.scaler_cache_entries.load(std::memory_order_relaxed),
+      " scalers-created=", metal4_memory.scalers_created.load(std::memory_order_relaxed),
+      " metal-allocated-bytes=", device.currentAllocatedSize()));
+}
 
 } // namespace dxmt

@@ -5640,6 +5640,8 @@ public:
       }
       scaler = scaler_entry.scaler;
       scaler_cache_.push_back(std::move(scaler_entry));
+      ctx_->device->GetDXMTDevice().queue().metal4_memory.scalers_created.fetch_add(
+          1, std::memory_order_relaxed);
       // to simplify implementation, the created scalers are never destroyed
       // as they are not expected to be created frequently
     }
@@ -5651,6 +5653,11 @@ public:
       return E_OUTOFMEMORY;
     }
     ctx_->InvalidateCurrentPass();
+    if (FxGeneration == MTL_FX_GENERATION_METAL4) {
+      auto &memory = ctx_->device->GetDXMTDevice().queue().metal4_memory;
+      memory.scaler_cache_entries.store(scaler_cache_.size(), std::memory_order_relaxed);
+      memory.accepted.fetch_add(1, std::memory_order_relaxed);
+    }
     ctx_->EmitOP([input = std::move(input), output = std::move(output),
                   depth = std::move(depth),
                   motion_vector = std::move(motion_vector),

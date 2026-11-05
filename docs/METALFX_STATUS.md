@@ -77,3 +77,39 @@ bottle or installed runtime is changed by these source/build checks.
 
 EDVR's selector limits and fail-closed source-capacity behavior are unchanged
 and explicitly excluded from this work.
+
+## Bounded memory diagnostics
+
+After Metal 4 activation, `MetalFX-memory` info-level records are emitted
+from the completion thread, after releasing a command chunk's retained
+objects. Sampling is at most once every five seconds per queue, capped at
+120 samples plus one suppression notice. No timer thread or GPU wait is added.
+These are approximate concurrent snapshots, not a validation receipt.
+
+- `accepted`, `submitted`, `retired`: Metal 4 request counts. Retirement means
+  the owning chunk reached cleanup, not that its pixels were correct.
+- `pending-encode`, `pending-retirement`: clamped differences of those counts.
+- `all-chunks-*`: all command chunks, including non-MetalFX work; error chunks
+  are counted separately and still retire.
+- `retained-metal4-object-refs`: explicit chunk-held references to Metal 4
+  allocators, command buffers and residency sets.
+- `retained-resource-bindings`: four or five input/output bindings per
+  submitted, unretired request. This is not a count of unique resources or
+  all references held by Metal, nor a byte total.
+- `scaler-cache-entries`: the immediate context's temporal scaler cache size
+  at its latest accepted Metal 4 request, including both generations.
+  `scalers-created` counts temporal scaler entries added over the queue lifetime.
+- `metal-allocated-bytes`: the device's `currentAllocatedSize`, not process
+  RSS, compressed memory, or Elite's own texture accounting.
+
+Flat ownership counts with increasing Metal bytes point beyond the counted
+chunk-held objects; rising pending counts or cache entries identify a more
+specific path to inspect. Logging stops if completion itself stops, so absence
+of later samples does not establish that memory stopped growing.
+
+These records use DXMT's logger, not EDVR's `edvr_gfx_*.log`. Normally under
+Wine they go to Wine's console output. `DXMT_LOG_PATH` can select a file
+directory; `DXMT_LOG_LEVEL` must permit `info`. Collection settings are not
+changed automatically by this diagnostic. The portable
+`tests/metal4_memory_diagnostics.cpp` checks sampling bounds and concurrency,
+not actual GPU retirement or memory reclamation.
