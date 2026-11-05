@@ -7,6 +7,18 @@ AI-generated changes must remain separate from upstream contribution work.
 
 This work is a private derivative. Do not submit it upstream.
 
+## No upstream publication — all branches
+
+Never push any branch, tag, commit, or other ref to the upstream DXMT
+repository (`3Shain/dxmt`), whether through the `upstream` remote, a direct
+URL, another remote alias, or an API. Do not open upstream pull requests or
+otherwise publish this private derivative upstream.
+
+This prohibition applies on every branch and in every worktree, not just
+`private/elite-metalfx4`. Permission to commit locally or push to the owner's
+fork does not authorize upstream publication. Keep this policy when creating
+or updating branches; do not remove it to bypass the restriction.
+
 # Scope, verification, and cost boundaries
 
 Treat the requested outcome as the scope boundary. Complete the work without
