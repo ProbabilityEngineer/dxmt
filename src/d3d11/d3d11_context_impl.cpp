@@ -21,6 +21,7 @@
  */
 
 #include "Metal.hpp"
+#include <unordered_map>
 #include "d3d11_annotation.hpp"
 #include "d3d11_context.hpp"
 #include "d3d11_device_child.hpp"
@@ -4580,9 +4581,34 @@ public:
   /** A pending clear of a texture only this list still holds can never be used: dropped. */
   void
   PrunePendingClears() {
+    struct TextureOwnership {
+      uint32_t clear_refs = 0;
+      uint32_t pool_refs = 0;
+      bool dead = false;
+    };
+    std::unordered_map<Texture *, TextureOwnership> textures;
+    std::unordered_map<RenamableTexturePool *, uint32_t> pools;
+    for (auto &clear : pending_clears_) {
+      if (auto texture = clear.texture.ptr())
+        textures[texture].clear_refs++;
+      if (auto pool = clear.renamable.ptr())
+        pools[pool]++;
+    }
+    // Each exclusively pending-owned pool contributes one texture reference.
+    // External or in-flight pool ownership must keep that reference live.
+    for (auto &[pool, clear_refs] : pools) {
+      auto texture = textures.find(pool->texture());
+      if (texture != textures.end() && pool->refCount() == clear_refs)
+        texture->second.pool_refs++;
+    }
+    // Decide before releasing anything: pool destruction changes refcounts.
+    for (auto &[texture, ownership] : textures) {
+      ownership.dead = texture->pending_clears == ownership.clear_refs &&
+                       texture->refCount() == ownership.clear_refs + ownership.pool_refs;
+    }
     for (auto &clear : pending_clears_) {
       Texture *texture = clear.texture.ptr();
-      if (texture && texture->refCount() == texture->pending_clears) {
+      if (texture && textures.at(texture).dead) {
         texture->pending_clears--;
         clear.texture = nullptr;
         clear.renamable = nullptr;

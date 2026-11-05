@@ -322,6 +322,8 @@ class RenamableTexturePool {
 public:
   void incRef();
   void decRef();
+  uint32_t refCount() const { return refcount_.load(std::memory_order_relaxed); }
+  Texture *texture() const { return texture_.ptr(); }
   Rc<TextureAllocation> getNext(uint64_t frame_);
 
   RenamableTexturePool(Texture *texture, size_t capacity,Flags<TextureAllocationFlag> allocation_flags);
