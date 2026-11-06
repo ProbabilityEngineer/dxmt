@@ -19,6 +19,13 @@ This prohibition applies on every branch and in every worktree, not just
 fork does not authorize upstream publication. Keep this policy when creating
 or updating branches; do not remove it to bypass the restriction.
 
+## Entire
+
+Entire is enabled. Keep session/checkpoint uploads disabled unless the owner
+explicitly authorizes them. Ask before changing Entire configuration or
+performing destructive operations. When using Entire commands, consult
+`entire agent-help` for current usage.
+
 # Scope, verification, and cost boundaries
 
 Treat the requested outcome as the scope boundary. Complete the work without
