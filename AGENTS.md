@@ -1,9 +1,11 @@
 AI must not be used to generate code for contributions to this project.
 
-Private derivative exception: AI-generated code is permitted on the local
-`private/elite-metalfx4` branch for the owner's private derivative only. This
-exception does not apply to upstream contributions or other branches.
-AI-generated changes must remain separate from upstream contribution work.
+Private derivative exception: AI-generated code is permitted for the owner's
+private derivative on any branch, locally and on the owner's fork (`origin`,
+`ProbabilityEngineer/dxmt`). This exception does not apply to upstream
+contributions: upstream has a no-AI policy, so AI-generated work must never be
+pushed, proposed or otherwise submitted upstream (see below). AI-generated
+changes must remain separate from upstream contribution work.
 
 This work is a private derivative. Do not submit it upstream.
 
