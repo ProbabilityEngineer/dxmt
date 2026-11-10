@@ -104,11 +104,13 @@ struct ShaderVariantPixel {
   bool dual_source_blending;
   bool disable_depth_output;
   uint32_t unorm_output_reg_mask;
+  uint32_t fetch_write_masks;
   bool operator==(const this_type &rhs) const {
     return sample_mask == rhs.sample_mask &&
            dual_source_blending == rhs.dual_source_blending &&
            disable_depth_output == rhs.disable_depth_output &&
-           unorm_output_reg_mask == rhs.unorm_output_reg_mask;
+           unorm_output_reg_mask == rhs.unorm_output_reg_mask &&
+           fetch_write_masks == rhs.fetch_write_masks;
   }
 };
 

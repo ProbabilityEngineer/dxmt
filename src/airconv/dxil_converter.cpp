@@ -1217,6 +1217,7 @@ initialize(
     case microsoft::D3D10_SB_PIXEL_SHADER:
       pRefl->PixelShader.ValidRenderTargets = shader->pso_valid_output_reg_mask;
       pRefl->PixelShader.HasCoverageOutput = shader->ps_has_coverage_output;
+      pRefl->PixelShader.HasDiscard = 0; // the D3D11 write-mask workaround reads this; DXIL is not covered
       break;
     case microsoft::D3D10_SB_GEOMETRY_SHADER:
       pRefl->GeometryShader.GSPassThrough = ~0u;

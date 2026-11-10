@@ -242,6 +242,7 @@ read_control_flow(
     }
 
     case D3D10_SB_OPCODE_DISCARD: {
+      sm50_shader->ps_has_discard = 1;
       auto fulfilled_ = fresh_bb("discard_fulfilled");
       auto otherwise_ = fresh_bb("discard_otherwise");
       bb_current->target = BasicBlockConditionalBranch{readCondition(Inst, 0, phase), fulfilled_, otherwise_};

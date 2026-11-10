@@ -314,7 +314,7 @@ public:
 
   bool IsDualSourceBlending() { return dual_source_blending_; }
 
-  void SetupMetalPipelineDescriptor(WMTRenderPipelineBlendInfo *info, uint32_t num_rt, uint32_t valid_rt) {
+  void SetupMetalPipelineDescriptor(WMTRenderPipelineBlendInfo *info, uint32_t num_rt, uint32_t valid_rt, uint32_t fetch_write_masks) {
     for (unsigned rt = 0; rt < num_rt; rt++) {
       if (!(valid_rt & (1 << rt)))
         continue;
@@ -322,6 +322,9 @@ public:
       auto &renderTarget = desc_.RenderTarget[i];
       auto &attachment_desc = info->colors[rt];
       attachment_desc.write_mask = kColorWriteMaskMap[renderTarget.RenderTargetWriteMask];
+      // the shader merges the masked-off components itself (EmulatedPartialWriteMasks)
+      if ((fetch_write_masks >> (rt * 4)) & 0xF)
+        attachment_desc.write_mask = WMTColorWriteMaskAll;
       if (renderTarget.BlendEnable && attachment_desc.pixel_format != WMTPixelFormatInvalid) {
         if (!any_bit_set(m_parent->GetMTLPixelFormatCapability(attachment_desc.pixel_format) & FormatCapability::Blend)) {
           WARN("Blending is enabled on RTV of non-blendable format ", attachment_desc.pixel_format);

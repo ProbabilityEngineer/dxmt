@@ -171,6 +171,89 @@ std::unique_ptr<MTLCompiledComputePipeline> CreateComputePipeline(MTLD3D11Device
 std::unique_ptr<MTLCompiledGeometryPipeline>
 CreateGeometryPipeline(MTLD3D11Device *pDevice, MTL_GRAPHICS_PIPELINE_DESC *pDesc);
 
+/**
+ * Colour channels a render target format stores, as a D3D11 write mask (R=1 G=2 B=4 A=8).
+ */
+inline uint32_t
+RenderTargetChannelMask(WMTPixelFormat format) {
+  switch (format) {
+  case WMTPixelFormatA8Unorm:
+    return 0x8;
+  case WMTPixelFormatR8Unorm:
+  case WMTPixelFormatR8Unorm_sRGB:
+  case WMTPixelFormatR8Snorm:
+  case WMTPixelFormatR8Uint:
+  case WMTPixelFormatR8Sint:
+  case WMTPixelFormatR16Unorm:
+  case WMTPixelFormatR16Snorm:
+  case WMTPixelFormatR16Uint:
+  case WMTPixelFormatR16Sint:
+  case WMTPixelFormatR16Float:
+  case WMTPixelFormatR32Uint:
+  case WMTPixelFormatR32Sint:
+  case WMTPixelFormatR32Float:
+    return 0x1;
+  case WMTPixelFormatRG8Unorm:
+  case WMTPixelFormatRG8Unorm_sRGB:
+  case WMTPixelFormatRG8Snorm:
+  case WMTPixelFormatRG8Uint:
+  case WMTPixelFormatRG8Sint:
+  case WMTPixelFormatRG16Unorm:
+  case WMTPixelFormatRG16Snorm:
+  case WMTPixelFormatRG16Uint:
+  case WMTPixelFormatRG16Sint:
+  case WMTPixelFormatRG16Float:
+  case WMTPixelFormatRG32Uint:
+  case WMTPixelFormatRG32Sint:
+  case WMTPixelFormatRG32Float:
+    return 0x3;
+  case WMTPixelFormatB5G6R5Unorm:
+  case WMTPixelFormatRG11B10Float:
+  case WMTPixelFormatRGB9E5Float:
+  case WMTPixelFormatBGRX8Unorm:
+  case WMTPixelFormatBGRX8Unorm_sRGB:
+    return 0x7;
+  default:
+    return 0xF;
+  }
+}
+
+/**
+ * Apple GPU workaround (observed on M4 Max, macOS 27.3, every MSL version 2.4-4.1):
+ * a fragment function that discards early and then writes colour outputs loses the
+ * discard and its depth/stencil writes when an attachment has a partial write mask
+ * (on 4-channel formats: any mask whose G and B bits differ). For such attachments the
+ * mask is applied in the shader instead (framebuffer fetch + per-component select) and
+ * the pipeline writes the attachment with a full mask.
+ *
+ * Returns 4 bits per render target (rt * 4): the D3D11 write mask to emulate, or 0.
+ * Only shaders that discard, with blending, logic ops and dual-source blending off.
+ */
+inline uint32_t
+EmulatedPartialWriteMasks(
+    const MTL_SHADER_REFLECTION &ps_reflection, IMTLD3D11BlendState *blend_state, const WMTPixelFormat *formats,
+    unsigned num_rtvs
+) {
+  if (!ps_reflection.PixelShader.HasDiscard || !blend_state || blend_state->IsDualSourceBlending())
+    return 0;
+  D3D11_BLEND_DESC1 desc;
+  blend_state->GetDesc1(&desc);
+  uint32_t masks = 0;
+  for (unsigned rt = 0; rt < num_rtvs && rt < 8; rt++) {
+    if (!(ps_reflection.PixelShader.ValidRenderTargets & (1u << rt)) || formats[rt] == WMTPixelFormatInvalid)
+      continue;
+    auto &target = desc.RenderTarget[desc.IndependentBlendEnable ? rt : 0];
+    if (target.BlendEnable || target.LogicOpEnable)
+      continue;
+    uint32_t channels = RenderTargetChannelMask(formats[rt]);
+    uint32_t mask = target.RenderTargetWriteMask & channels;
+    if (mask == 0 || mask == channels)
+      continue;
+    masks |= uint32_t(target.RenderTargetWriteMask & 0xF) << (rt * 4);
+  }
+  return masks;
+}
+
 std::unique_ptr<MTLCompiledTessellationMeshPipeline>
 CreateTessellationMeshPipeline(MTLD3D11Device *pDevice, MTL_GRAPHICS_PIPELINE_DESC *pDesc);
 

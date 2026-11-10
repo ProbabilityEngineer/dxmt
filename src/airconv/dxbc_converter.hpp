@@ -257,6 +257,8 @@ struct SignatureContext {
   bool skip_vertex_output;
   uint32_t pull_mode_reg_mask;
   uint32_t unorm_output_reg_mask;
+  /** SM50_SHADER_PSO_PIXEL_SHADER_DATA::fetch_write_masks */
+  uint32_t fetch_write_masks;
   uint32_t pso_sample_mask;
   // it is considered optional (as a hint)
   air::MTLPixelFormat pixel_formats[8];
@@ -274,6 +276,7 @@ struct SignatureContext {
       skip_vertex_output(false),
       pull_mode_reg_mask(0),
       unorm_output_reg_mask(0),
+      fetch_write_masks(0),
       pso_sample_mask(0xffffffff) {
     memset(pixel_formats, 0, sizeof(pixel_formats));
   };
@@ -379,6 +382,7 @@ public:
   uint32_t gs_max_vertex_output = 0;
   uint32_t gs_instance_count = 1;
   uint32_t ps_has_coverage_output = 0;
+  uint32_t ps_has_discard = 0;
 
   BasicBlock *entry() const {
     return bbs.front().get();

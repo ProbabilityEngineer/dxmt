@@ -474,6 +474,9 @@ uint32_t FunctionSignatureBuilder::DefineInput(const FunctionInput &input) {
                        std::get<ArgumentBindingIndirectBuffer>(element.value())
                          .location_index;
               },
+              [&](const InputRenderTarget s) {
+                return s.index == std::get<InputRenderTarget>(element.value()).index;
+              },
               [](auto) { return true; }
             },
             input
@@ -674,6 +677,16 @@ auto FunctionSignatureBuilder::CreateFunction(
             ->string("mtl_position");
 
           return msl_float4.get_llvm_type(context);
+        },
+        [&](const InputRenderTarget &render_target) {
+          // same form as MSL's [[color(n)]] fragment input (one index, unlike the output's two)
+          metadata_field.string("air.render_target")
+            ->integer(render_target.index)
+            ->string("air.arg_type_name")
+            ->string(get_name(render_target.type))
+            ->string("air.arg_name")
+            ->string("render_target_in_" + std::to_string(render_target.index));
+          return get_llvm_type(render_target.type, context);
         },
         [&](const InputFrontFacing &) {
           metadata_field.string("air.front_facing")

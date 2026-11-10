@@ -336,6 +336,20 @@ IOHelper::PopulateOutputFixUnorm(uint32_t from_reg, uint32_t mask, llvm::Value *
 }
 
 llvm::Value *
+IOHelper::MergeFetchedRenderTarget(
+    llvm::Value *StructRet, uint32_t to_element, uint32_t fetched_argument, uint32_t write_mask
+) {
+  auto value = ir.CreateExtractValue(StructRet, {to_element});
+  auto fetched = function->getArg(fetched_argument);
+  [[maybe_unused]] auto vector = llvm::cast<llvm::FixedVectorType>(value->getType());
+  assert(vector == fetched->getType() && vector->getNumElements() == 4);
+  llvm::SmallVector<int, 4> indices;
+  for (unsigned i = 0; i < 4; i++)
+    indices.push_back(write_mask & (1u << i) ? (int)i : (int)(4 + i));
+  return ir.CreateInsertValue(StructRet, ir.CreateShuffleVector(value, fetched, indices), {to_element});
+}
+
+llvm::Value *
 IOHelper::PopulateOutputSanitizePosition(
     uint32_t from_reg, uint32_t mask, llvm::Value *StructRet, uint32_t to_element
 ) {

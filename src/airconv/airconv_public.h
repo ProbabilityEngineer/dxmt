@@ -97,6 +97,8 @@ struct MTL_POST_TESSELLATOR_REFLECTION {
 struct MTL_PIXEL_SHADER_REFLECTION {
   uint32_t ValidRenderTargets;
   uint32_t HasCoverageOutput;
+  /** the shader contains a discard instruction (fits in the reflection union) */
+  uint32_t HasDiscard;
 };
 
 struct MTL_SHADER_REFLECTION {
@@ -255,6 +257,12 @@ struct SM50_SHADER_PSO_PIXEL_SHADER_DATA {
   uint32_t unorm_output_reg_mask;
   /** MTLPixelFormat */
   uint32_t pixel_formats[8];
+  /**
+   * 4 bits per render target (rt * 4): the D3D11 write mask of a colour attachment whose
+   * partial mask is emulated in the shader (framebuffer fetch + per-component select);
+   * the pipeline then writes that attachment with a full mask. 0: not emulated.
+   */
+  uint32_t fetch_write_masks;
 };
 
 struct SM50_IA_INPUT_ELEMENT {

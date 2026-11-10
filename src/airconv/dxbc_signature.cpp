@@ -608,6 +608,16 @@ void handle_signature_ps(
           ctx.epilogue.Add([=](llvm::Value *ret, IOHelper &io) -> llvm::Expected<llvm::Value *> {
             return io.PopulateOutput(reg, mask, ret, assigned_index);
           });
+        // A partial write mask emulated in the shader (EmulatedPartialWriteMasks in d3d11_pipeline.hpp):
+        // the masked-off components keep the attachment's current value; the pipeline writes all four.
+        uint32_t write_mask = (ctx.fetch_write_masks >> (reg * 4)) & 0xF;
+        if (write_mask && !ctx.dual_source_blending) {
+          uint32_t fetched_index =
+              ctx.func_signature.DefineInput(InputRenderTarget{.index = reg, .type = to_msl_type(type)});
+          ctx.epilogue.Add([=](llvm::Value *ret, IOHelper &io) -> llvm::Expected<llvm::Value *> {
+            return io.MergeFetchedRenderTarget(ret, assigned_index, fetched_index, write_mask);
+          });
+        }
       });
       break;
     }

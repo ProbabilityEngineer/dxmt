@@ -172,6 +172,8 @@ CreateVariantShader(MTLD3D11Device *pDevice, ManagedShader shader,
   h.update(variant.unorm_output_reg_mask);
   h.update(variant.dual_source_blending);
   h.update(variant.disable_depth_output);
+  if (variant.fetch_write_masks)
+    h.update(variant.fetch_write_masks);
   auto variant_digest = h.final();
   std::string func_name = "ps_" + shader->sha1().string().substr(0, 8) + "_" + variant_digest.string();
 
@@ -184,6 +186,7 @@ CreateVariantShader(MTLD3D11Device *pDevice, ManagedShader shader,
     data.disable_depth_output = variant.disable_depth_output;
     data.unorm_output_reg_mask = variant.unorm_output_reg_mask;
     memset(data.pixel_formats, 0, sizeof(data.pixel_formats));
+    data.fetch_write_masks = variant.fetch_write_masks;
 
     sm50_bitcode_t compile_result = nullptr;
     sm50_error_t sm50_err = nullptr;

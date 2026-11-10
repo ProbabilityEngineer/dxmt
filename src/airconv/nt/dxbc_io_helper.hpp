@@ -51,6 +51,14 @@ public:
   llvm::Value *
   PopulateOutputFixUnorm(uint32_t FromRegister, uint32_t Mask, llvm::Value *StructRet, uint32_t AtElement);
 
+  /**
+   * Replace the components of render target output `AtElement` that `WriteMask` (D3D11 R=1 G=2 B=4 A=8)
+   * excludes with the attachment's current value, read through framebuffer fetch argument
+   * `FetchedArgument`. Used where a partial write mask is emulated in the shader.
+   */
+  llvm::Value *
+  MergeFetchedRenderTarget(llvm::Value *StructRet, uint32_t AtElement, uint32_t FetchedArgument, uint32_t WriteMask);
+
   llvm::Value *
   PopulateOutputSanitizePosition(uint32_t FromRegister, uint32_t Mask, llvm::Value *StructRet, uint32_t AtElement);
 

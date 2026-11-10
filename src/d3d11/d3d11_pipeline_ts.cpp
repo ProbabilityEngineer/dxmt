@@ -79,10 +79,12 @@ public:
             pDesc->HullShader, pDesc->GSPassthrough,
             max_potential_factor, !pDesc->RasterizationEnabled});
     if (pDesc->PixelShader) {
+      fetch_write_masks =
+          EmulatedPartialWriteMasks(pDesc->PixelShader->reflection(), pDesc->BlendState, rtv_formats, num_rtvs);
       PixelShader = pDesc->PixelShader->get_shader(ShaderVariantPixel{
           pDesc->SampleMask, pDesc->BlendState->IsDualSourceBlending(),
           depth_stencil_format == WMTPixelFormatInvalid,
-          unorm_output_reg_mask});
+          unorm_output_reg_mask, fetch_write_masks});
       ps_valid_render_targets = pDesc->PixelShader->reflection().PSValidRenderTargets;
     } else {
       PixelShader = nullptr;
@@ -161,7 +163,7 @@ public:
 
     if (pBlendState) {
       pBlendState->SetupMetalPipelineDescriptor(
-          (WMTRenderPipelineBlendInfo *)&info, num_rtvs, ps_valid_render_targets);
+          (WMTRenderPipelineBlendInfo *)&info, num_rtvs, ps_valid_render_targets, fetch_write_masks);
     }
 
     info.raster_sample_count = SampleCount;
@@ -194,6 +196,7 @@ public:
 private:
   UINT num_rtvs;
   UINT ps_valid_render_targets;
+  uint32_t fetch_write_masks = 0;
   WMTPixelFormat rtv_formats[8];
   WMTPixelFormat depth_stencil_format;
   MTLD3D11Device *device_;
