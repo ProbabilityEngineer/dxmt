@@ -2840,6 +2840,8 @@ public:
       return;
 
     bool should_invalidate_pass = false;
+    bool targets_changed = false;
+    bool uav_changed_pass = false;
 
     if (NumRTVs != D3D11_KEEP_RENDER_TARGETS_AND_DEPTH_STENCIL) {
       if (!ValidateSetRenderTargets(NumRTVs, ppRenderTargetViews, pDepthStencilView)) {
@@ -2877,6 +2879,18 @@ public:
         }
         state_.OutputMerger.DSV = nullptr;
       }
+    }
+
+    targets_changed = should_invalidate_pass;
+
+    bool binds_uav = false;
+    if (NumUAVs != D3D11_KEEP_UNORDERED_ACCESS_VIEWS && ppUnorderedAccessViews)
+      for (UINT i = 0; i < NumUAVs; i++)
+        binds_uav |= ppUnorderedAccessViews[i] != nullptr;
+    if (binds_uav && masked_rtv_slots_) {
+      // A UAV could alias a masked attachment, which the hazard checks below (bound targets only) cannot see: end the subset pass.
+      should_invalidate_pass = true;
+      uav_changed_pass = true;
     }
 
     if (NumUAVs != D3D11_KEEP_UNORDERED_ACCESS_VIEWS) {
@@ -2925,10 +2939,24 @@ public:
         // No check on SO as SO^UAV = 1
 
         if (NumRTVs != D3D11_KEEP_RENDER_TARGETS_AND_DEPTH_STENCIL)
-          should_invalidate_pass |= OMResolveRTVHazard(pUAV);
+          {
+          bool hazard = OMResolveRTVHazard(pUAV);
+          should_invalidate_pass |= hazard;
+          uav_changed_pass |= hazard;
+        }
       }
     }
 
+    if (should_invalidate_pass && targets_changed && !uav_changed_pass) {
+      // Only the colour/depth set changed: a set the open pass can serve keeps it (SubsetOfPass).
+      uint32_t masked = SubsetOfPass();
+        if (masked != ~0u) {
+        masked_rtv_slots_ = masked;
+        InvalidateRenderPipeline();
+        PassCensus::get().noteKept();
+        return;
+      }
+    }
     if (should_invalidate_pass) {
       InvalidateCurrentPass();
     }
@@ -3587,6 +3615,7 @@ public:
     auto &ShaderStage = state_.ShaderStages[Stage];
     for (unsigned slot = StartSlot; slot < StartSlot + NumViews; slot++) {
       auto pView = static_cast<D3D11ShaderResourceView *>(ppShaderResourceViews[slot - StartSlot]);
+      EndPassIfMaskedAttachment(pView);
       if (pView && ValidateSRVHazard<Stage>(pView)) {
         bool replaced = false;
         auto &entry = ShaderStage.SRVs.bind(slot, {pView}, replaced, !pView->hazardsFree());
@@ -4297,6 +4326,81 @@ public:
   - flush/present
   Return value indicates if a commit happens
   */
+  void
+  ForgetPassAttachments() {
+    if (!pass_known_ && !masked_rtv_slots_)
+      return;
+    for (auto &rtv : pass_rtvs_)
+      rtv = nullptr;
+    pass_dsv_ = nullptr;
+    pass_num_rtvs_ = 0;
+    pass_known_ = false;
+    masked_rtv_slots_ = 0;
+  }
+
+  void
+  RememberPassAttachments() {
+    for (unsigned i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
+      pass_rtvs_[i] = i < state_.OutputMerger.NumRTVs ? state_.OutputMerger.RTVs[i] : nullptr;
+    pass_dsv_ = state_.OutputMerger.DSV;
+    pass_num_rtvs_ = state_.OutputMerger.NumRTVs;
+    pass_known_ = true;
+    masked_rtv_slots_ = 0;
+  }
+
+  /**
+  The bound target set is the open render pass's set minus some colour slots: the same depth view, and every bound colour view the
+  pass's own in the same slot. Returns the slots the pass has and the set leaves unbound (0: the same set), or ~0u when the pass
+  cannot serve it. Integer formats are never masked: a shader output of another type than the attachment is not left to chance.
+  */
+  uint32_t
+  SubsetOfPass() {
+    if (!pass_known_ || cmdbuf_state != CommandBufferState::RenderEncoderActive &&
+                            cmdbuf_state != CommandBufferState::RenderPipelineReady)
+      return ~0u;
+    if (state_.OutputMerger.DSV.ptr() != pass_dsv_.ptr())
+      return ~0u;
+    if (state_.OutputMerger.UAVs.any_bound())
+      return ~0u;
+    uint32_t masked = 0;
+    unsigned bound = 0;
+    for (unsigned i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; i++) {
+      auto *now = i < state_.OutputMerger.NumRTVs ? state_.OutputMerger.RTVs[i].ptr() : nullptr;
+      auto *pass = pass_rtvs_[i].ptr();
+      if (now) {
+        if (now != pass)
+          return ~0u;
+        bound++;
+      } else if (pass) {
+        if (IsIntegerFormat(pass->pixelFormat()))
+          return ~0u;
+        masked |= 1u << i;
+      }
+    }
+    if (!bound && !pass_dsv_)
+      return ~0u;
+    return masked;
+  }
+
+  /**
+  A texture about to be read while it is a masked attachment of the open pass: the pass ends first (a texture cannot be an attachment
+  and a shader input of the same pass).
+  */
+  void
+  EndPassIfMaskedAttachment(D3D11ShaderResourceView *pView) {
+    if (!masked_rtv_slots_ || !pView)
+      return;
+    auto texture = pView->texture();
+    if (!texture.ptr())
+      return;
+    for (unsigned i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; i++) {
+      if ((masked_rtv_slots_ & (1u << i)) && pass_rtvs_[i] && pass_rtvs_[i]->texture().ptr() == texture.ptr()) {
+        InvalidateCurrentPass();
+        return;
+      }
+    }
+  }
+
   bool
   InvalidateCurrentPass(bool defer_commit = false, const char *census_fn = __builtin_FUNCTION(),
                         unsigned census_line = __builtin_LINE()) {
@@ -4337,6 +4441,7 @@ public:
     }
 
     cmdbuf_state = CommandBufferState::Idle;
+    ForgetPassAttachments();
     if (promote_flush && !defer_commit) {
       PassCensus::get().noteCommit(census_fn, census_line);
       Commit();
@@ -4565,6 +4670,7 @@ public:
 
     cmdbuf_state = CommandBufferState::RenderEncoderActive;
     previous_render_pipeline_state = cmdbuf_state;
+    RememberPassAttachments();
     return true;
   }
 
@@ -4653,6 +4759,14 @@ public:
       } else {
         Desc.ColorAttachmentFormats[i] = WMTPixelFormatInvalid;
       }
+    }
+    // A subset of the open pass (SubsetOfPass): the pass's attachments, the unbound ones declared with write mask 0.
+    Desc.MaskedColorAttachments = masked_rtv_slots_;
+    if (masked_rtv_slots_) {
+      Desc.NumColorAttachments = std::max<UINT>(Desc.NumColorAttachments, pass_num_rtvs_);
+      for (unsigned i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
+        if (masked_rtv_slots_ & (1u << i))
+          Desc.ColorAttachmentFormats[i] = pass_rtvs_[i]->pixelFormat();
     }
     Desc.BlendState = state_.OutputMerger.BlendState ? state_.OutputMerger.BlendState : default_blend_state;
     Desc.DepthStencilFormat =
@@ -5133,6 +5247,14 @@ public:
 protected:
   MTLD3D11Device *device;
   CommandBufferState cmdbuf_state = CommandBufferState::Idle;
+  // Subset passes (private/pass-census): the attachments the open render pass was begun with, and the slots of it that the current
+  // OMSetRenderTargets leaves unbound. A target set that is the pass's set minus some slots keeps the pass open: the masked slots stay
+  // attachments, and the draws' pipelines declare them with write mask 0 (Metal requires every attachment's format in the pipeline).
+  Com<D3D11RenderTargetView, false> pass_rtvs_[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT];
+  Com<D3D11DepthStencilView, false> pass_dsv_;
+  UINT pass_num_rtvs_ = 0;
+  bool pass_known_ = false;
+  uint32_t masked_rtv_slots_ = 0;
   CommandBufferState previous_render_pipeline_state = CommandBufferState::Idle;
   ContextInternalState &ctx_state;
   ContextInternalState::device_mutex_t &mutex;

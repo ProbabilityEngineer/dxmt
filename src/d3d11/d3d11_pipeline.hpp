@@ -26,7 +26,19 @@ struct MTL_GRAPHICS_PIPELINE_DESC {
   SM50_INDEX_BUFFER_FORMAT IndexBufferFormat;
   uint32_t SampleMask;
   uint32_t GSPassthrough;
+  // Colour slots that are attachments of the open render pass but not bound (a subset pass, private/pass-census): declared with the
+  // pass's format and write mask 0.
+  uint32_t MaskedColorAttachments = 0;
 };
+
+// The partial-write-mask emulation's four bits per slot, for the masked slots (never emulated: they write nothing).
+inline uint32_t MaskedFetchNibbles(uint32_t masked) {
+  uint32_t m = 0;
+  for (unsigned i = 0; i < 8; i++)
+    if (masked & (1u << i))
+      m |= 0xFu << (i * 4);
+  return m;
+}
 
 struct MTL_COMPUTE_PIPELINE_DESC {
   ManagedShader ComputeShader;
@@ -66,6 +78,7 @@ template <> struct hash<MTL_GRAPHICS_PIPELINE_DESC> {
     state.add((size_t)v.GSPassthrough);
     state.add((size_t)v.SampleCount);
     state.add((size_t)v.NumColorAttachments);
+    state.add((size_t)v.MaskedColorAttachments);
     for (unsigned i = 0; i < v.NumColorAttachments; i++) {
       state.add(v.ColorAttachmentFormats[i]);
     }
@@ -76,6 +89,8 @@ template <> struct equal_to<MTL_GRAPHICS_PIPELINE_DESC> {
   bool operator()(const MTL_GRAPHICS_PIPELINE_DESC &x,
                   const MTL_GRAPHICS_PIPELINE_DESC &y) const {
     if (x.NumColorAttachments != y.NumColorAttachments)
+      return false;
+    if (x.MaskedColorAttachments != y.MaskedColorAttachments)
       return false;
     for (unsigned i = 0; i < x.NumColorAttachments; i++) {
       if (x.ColorAttachmentFormats[i] != y.ColorAttachmentFormats[i])

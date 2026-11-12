@@ -45,6 +45,16 @@ public:
     if (e)
       ++e->n;
   }
+  // A target change the open pass served as a subset (no pass end).
+  void noteKept() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    ++kept_;
+    if (!keptSaid_ && open()) {   // once a process: this build's subset passes ran (a log line even with no Present)
+      keptSaid_ = true;
+      std::fprintf(file_, "first target change kept in the open render pass (subset pass)\n");
+      std::fflush(file_);
+    }
+  }
   void noteTimestampEnd() {
     std::lock_guard<std::mutex> lock(mutex_);
     ++timestamps_;
@@ -62,7 +72,7 @@ public:
       return;
     write(std::chrono::duration<double>(now - windowStart_).count());
     windowStart_ = now;
-    frames_ = begins_ = commits_ = timestamps_ = overflow_ = 0;
+    frames_ = begins_ = commits_ = timestamps_ = overflow_ = kept_ = 0;
     for (auto &e : entries_)
       e.n = 0;
   }
@@ -94,8 +104,10 @@ private:
     return &e;
   }
 
-  void write(double seconds) {
-    if (!file_) {
+  bool open() {
+    if (file_)
+      return true;
+    {
       char path[MAX_PATH] = {};
       DWORD n = GetModuleFileNameA(nullptr, path, MAX_PATH);
       char *slash = n ? std::strrchr(path, '\\') : nullptr;
@@ -105,19 +117,25 @@ private:
         std::strcpy(path, "dxmt_pass_census.log");
       file_ = std::fopen(path, "a");
       if (!file_)
-        return;
+        return false;
       SYSTEMTIME t;
       GetLocalTime(&t);
       std::fprintf(file_, "%02u:%02u:%02u dxmt pass census started (private/pass-census)\n", t.wHour, t.wMinute, t.wSecond);
     }
+    return true;
+  }
+
+  void write(double seconds) {
+    if (!open())
+      return;
     const double f = frames_ ? static_cast<double>(frames_) : 1.0;
     SYSTEMTIME t;
     GetLocalTime(&t);
     std::fprintf(file_,
                  "%02u:%02u:%02u window %.1f s frames=%llu: per frame render passes begun %.1f, command buffers committed %.1f, "
-                 "timestamp query ends %.1f%s\n",
+                 "timestamp query ends %.1f, target changes kept in the pass %.1f%s\n",
                  t.wHour, t.wMinute, t.wSecond, seconds, static_cast<unsigned long long>(frames_), begins_ / f, commits_ / f,
-                 timestamps_ / f, overflow_ ? " (some callers not tracked: table full)" : "");
+                 timestamps_ / f, kept_ / f, overflow_ ? " (some callers not tracked: table full)" : "");
     Entry *order[kEntries];
     unsigned k = 0;
     for (unsigned i = 0; i < used_; ++i)
@@ -133,8 +151,9 @@ private:
   std::mutex mutex_;
   Entry entries_[kEntries];
   unsigned used_ = 0;
-  uint64_t frames_ = 0, begins_ = 0, commits_ = 0, timestamps_ = 0, overflow_ = 0;
+  uint64_t frames_ = 0, begins_ = 0, commits_ = 0, timestamps_ = 0, overflow_ = 0, kept_ = 0;
   bool started_ = false;
+  bool keptSaid_ = false;
   std::chrono::steady_clock::time_point windowStart_{};
   FILE *file_ = nullptr;
 };

@@ -50,9 +50,11 @@ public:
     GeometryShader = pDesc->GeometryShader->get_shader(
       ShaderVariantGeometry{pDesc->VertexShader, pDesc->GSStripTopology});
    
+    masked_rtvs = pDesc->MaskedColorAttachments;
     if (pDesc->PixelShader) {
       fetch_write_masks =
           EmulatedPartialWriteMasks(pDesc->PixelShader->reflection(), pDesc->BlendState, rtv_formats, num_rtvs);
+      fetch_write_masks &= ~MaskedFetchNibbles(masked_rtvs);
       PixelShader = pDesc->PixelShader->get_shader(ShaderVariantPixel{
           pDesc->SampleMask, pDesc->BlendState->IsDualSourceBlending(),
           depth_stencil_format == WMTPixelFormatInvalid,
@@ -130,6 +132,12 @@ public:
     if (pBlendState) {
       pBlendState->SetupMetalPipelineDescriptor((WMTRenderPipelineBlendInfo *)&info, num_rtvs, ps_valid_render_targets, fetch_write_masks);
     }
+    for (unsigned i = 0; i < num_rtvs; i++) {   // a subset pass's unbound attachments: declared, never written
+      if (masked_rtvs & (1u << i)) {
+        info.colors[i].write_mask = WMTColorWriteMaskNone;
+        info.colors[i].blending_enabled = false;
+      }
+    }
 
     info.raster_sample_count = SampleCount;
 
@@ -151,6 +159,7 @@ public:
 
 private:
   UINT num_rtvs;
+  uint32_t masked_rtvs = 0;
   UINT ps_valid_render_targets;
   uint32_t fetch_write_masks = 0;
   WMTPixelFormat rtv_formats[8];
