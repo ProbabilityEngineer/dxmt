@@ -1,3 +1,4 @@
+#include "d3d11_pass_census.hpp"
 #include "d3d11_swapchain.hpp"
 #include "com/com_guid.hpp"
 #include "config/config.hpp"
@@ -758,6 +759,7 @@ public:
       SetFullscreenState(FALSE, nullptr);
 
     std::unique_lock<d3d11_device_mutex> lock(device_->mutex);
+    PassCensus::get().notePresent();
 
     device_context_->PrepareFlush();
     if (hr == DXGI_STATUS_OCCLUDED) {

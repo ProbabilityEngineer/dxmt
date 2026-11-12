@@ -29,6 +29,7 @@
 #include "d3d11_private.h"
 #include "d3d11_context_state.hpp"
 #include "d3d11_device.hpp"
+#include "d3d11_pass_census.hpp"
 #include "d3d11_pipeline.hpp"
 #include "d3d11_query.hpp"
 #include "dxmt_buffer.hpp"
@@ -4297,7 +4298,8 @@ public:
   Return value indicates if a commit happens
   */
   bool
-  InvalidateCurrentPass(bool defer_commit = false) {
+  InvalidateCurrentPass(bool defer_commit = false, const char *census_fn = __builtin_FUNCTION(),
+                        unsigned census_line = __builtin_LINE()) {
     switch (cmdbuf_state) {
     case CommandBufferState::Idle:
       break;
@@ -4305,6 +4307,7 @@ public:
     case CommandBufferState::RenderPipelineReady:
     case CommandBufferState::TessellationRenderPipelineReady:
     case CommandBufferState::GeometryRenderPipelineReady: {
+      PassCensus::get().noteRenderEnd(census_fn, census_line, GetType() == D3D11_DEVICE_CONTEXT_DEFERRED);
       // EmitCommand([](CommandChunk::context &ctx) {
       //   ctx.render_encoder->endEncoding();
       //   ctx.render_encoder = nullptr;
@@ -4335,6 +4338,7 @@ public:
 
     cmdbuf_state = CommandBufferState::Idle;
     if (promote_flush && !defer_commit) {
+      PassCensus::get().noteCommit(census_fn, census_line);
       Commit();
       return true;
     }
@@ -4416,6 +4420,7 @@ public:
     if (cmdbuf_state == CommandBufferState::RenderEncoderActive)
       return true;
     InvalidateCurrentPass();
+    PassCensus::get().noteRenderBegin();
 
     // set dirty state
     state_.ShaderStages[PipelineStage::Vertex].ConstantBuffers.set_dirty();
@@ -4567,14 +4572,15 @@ public:
   Switch to blit encoder
   */
   void
-  SwitchToBlitEncoder(CommandBufferState BlitKind) {
+  SwitchToBlitEncoder(CommandBufferState BlitKind, const char *census_fn = __builtin_FUNCTION(),
+                      unsigned census_line = __builtin_LINE()) {
     if (cmdbuf_state == BlitKind)
       return;
 
     /**
     Don't flush if it's a readback/upload blit pass
      */
-    InvalidateCurrentPass(BlitKind != CommandBufferState::BlitEncoderActive);
+    InvalidateCurrentPass(BlitKind != CommandBufferState::BlitEncoderActive, census_fn, census_line);
 
     EmitST([](ArgumentEncodingContext &enc) { enc.startBlitPass(); });
 
@@ -4585,12 +4591,12 @@ public:
   Switch to compute encoder and set all states (expect for pipeline state)
   */
   void
-  SwitchToComputeEncoder() {
+  SwitchToComputeEncoder(const char *census_fn = __builtin_FUNCTION(), unsigned census_line = __builtin_LINE()) {
     if (cmdbuf_state == CommandBufferState::ComputePipelineReady)
       return;
     if (cmdbuf_state == CommandBufferState::ComputeEncoderActive)
       return;
-    InvalidateCurrentPass();
+    InvalidateCurrentPass(false, census_fn, census_line);
 
     // set dirty state
     state_.ShaderStages[PipelineStage::Compute].ConstantBuffers.set_dirty();

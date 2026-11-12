@@ -383,6 +383,7 @@ public:
     }
     case D3D11_QUERY_TIMESTAMP: {
       if (auto query = static_cast<MTLD3D11TimestampQuery *>(pAsync)->End()) {
+        PassCensus::get().noteTimestampEnd();
         InvalidateCurrentPass(true);
         EmitOP([query = Rc(query)](ArgumentEncodingContext &enc) mutable {
           enc.sampleTimestamp(std::move(query));
