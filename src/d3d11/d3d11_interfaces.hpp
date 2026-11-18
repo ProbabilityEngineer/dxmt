@@ -31,6 +31,9 @@ DEFINE_COM_INTERFACE("43ace3ce-1956-448b-a4eb-aee68bdeb283",
 
 typedef enum MTL_FEATURE {
   MTL_FEATURE_METALFX_TEMPORAL_SCALER = 0,
+  // Private (ProbabilityEngineer fork, not upstream): this build emulates partial colour write masks in pixel shaders that
+  // discard (1cdd135f), so a client may drop its own workaround for the Apple fault. A high value, clear of upstream's.
+  MTL_FEATURE_PRIVATE_PARTIAL_WRITEMASK_DISCARD_FIXED = 0x45440001,
 } MTL_FEATURE;
 
 DEFINE_COM_INTERFACE("19a8e35a-38be-418f-94e3-9f7323936870", IMTLD3D11ContextExt1) : public IMTLD3D11ContextExt {

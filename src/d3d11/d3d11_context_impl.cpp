@@ -5409,6 +5409,12 @@ public:
       *reinterpret_cast<BOOL *>(pFeatureSupportData) = ctx_->device->GetMTLDevice().supportsFXTemporalScaler();
       return S_OK;
     }
+    case MTL_FEATURE_PRIVATE_PARTIAL_WRITEMASK_DISCARD_FIXED: {
+      if (FeatureSupportDataSize != sizeof(BOOL))
+        return E_INVALIDARG;
+      *reinterpret_cast<BOOL *>(pFeatureSupportData) = TRUE;
+      return S_OK;
+    }
     }
     return E_INVALIDARG;
   };
