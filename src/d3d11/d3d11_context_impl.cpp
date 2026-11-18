@@ -5192,6 +5192,8 @@ class MTLD3D11ContextExt : public IMTLD3D11ContextExt1 {
     uint32_t output_height;
     Rc<TemporalScaler> scaler;
     Rc<Texture> mv_downscaled;
+    // The TemporalUpscale call count when this entry was last used.
+    uint64_t last_used = 0;
   };
 public:
   MTLD3D11ContextExt(MTLD3D11DeviceContextImplBase<ContextInternalState> *context) : ctx_(context){};
@@ -5252,6 +5254,8 @@ public:
     Rc<TemporalScaler> scaler;
     Rc<Texture> mv_downscaled;
 
+    const uint64_t call = ++scaler_calls_;
+
     for(CachedTemporalScaler& entry: scaler_cache_) {
       if(pDesc->AutoExposure != entry.auto_exposure) continue;
       if(input->width() != entry.input_width) continue;
@@ -5266,6 +5270,7 @@ public:
 
       scaler = entry.scaler;
       mv_downscaled = entry.mv_downscaled;
+      entry.last_used = call;
       break;
     }
 
@@ -5314,9 +5319,19 @@ public:
         mv_downscaled->rename(mv_downscaled->allocate(flags));
       }
       scaler = scaler_entry.scaler;
+      scaler_entry.last_used = call;
+      // A scaler holds history textures at the output size, hundreds of MB at
+      // 4K. Each new input or output size (the game's supersampling or window
+      // size changing) makes a new one, so keeping every scaler for the life
+      // of the context grows memory by gigabytes. When a new scaler is made,
+      // drop the cached ones not used for kScalerIdleCalls calls. That is far
+      // longer than any frame still in flight, so no command buffer that
+      // encoded a dropped scaler is still pending (the queued op also holds
+      // its own reference until it is encoded).
+      std::erase_if(scaler_cache_, [call](const CachedTemporalScaler &entry) {
+        return call - entry.last_used >= kScalerIdleCalls;
+      });
       scaler_cache_.push_back(std::move(scaler_entry));
-      // to simplify implementation, the created scalers are never destroyed
-      // as they are not expected to be created frequently
     }
 
     ctx_->InvalidateCurrentPass();
@@ -5402,6 +5417,8 @@ private:
 
   MTLD3D11DeviceContextImplBase<ContextInternalState> *ctx_;
   std::vector<CachedTemporalScaler> scaler_cache_;
+  uint64_t scaler_calls_ = 0;
+  static constexpr uint64_t kScalerIdleCalls = 60;
 };
 
 struct used_dynamic_buffer {
